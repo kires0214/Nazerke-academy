@@ -26,7 +26,9 @@ These checks called the actual migration, seed and backend services against host
 
 The original CI on this application revision passed [31/31 tests, TypeScript, build, Linux HTTP smoke and dependency audit](https://github.com/kires0214/Nazerke-academy/actions/runs/42240888681). The live initialization and validation added no application source changes. Credentials, fixture identities and the private reproduction/audit script remain outside Git. The temporary credential file was removed, the local runtime exited, and the idle Neon compute was suspended and verified idle. The seeded DEV database and its Vercel secret are retained for continuing setup; a future query can resume compute.
 
-Hosted DEV is still blocked at the existing Vercel project's Git connection: Vercel returns `400` for branch-scoped variables while the project is unlinked, and the available connector cannot link an existing project. No fallback broadened credentials to all Preview branches. After the Git link is established without deploying Production, configure only `codex/juicy-mvp` for hosted DEV. Real Telegram/Stream, authenticated browser/device flows and backup/restore remain acceptance gates. Production is unchanged.
+The existing Vercel project is now connected to the approved GitHub repository, with `main` retained as its Production branch. CODEX_PRIMARY performed the link after a task-scoped account authorization; the serving Production deployment and global build/protection settings were verified unchanged. `APP_ENV=DEV` and the Sensitive Neon `DATABASE_URL` are also configured for Preview scoped only to `codex/juicy-mvp`. No credentials were broadened to all Preview branches.
+
+The feature branch's `vercel.json` selects Next.js, the existing `npm ci` / `npm run build` commands and the Frankfurt function region beside Neon DEV. This configures branch deployments without changing global project settings or the currently serving Production app. Hosted `APP_BASE_URL` must use the actual verified DEV URL; the PR records the resulting deployment and smoke-check status. Telegram and Cloudflare remain explicitly deferred, including the hosted Telegram webhook secret. Real Telegram/Stream, authenticated browser/device flows and backup/restore remain acceptance gates. Production is unchanged.
 
 ## Executed in DEV
 
@@ -63,7 +65,7 @@ The Production reference deployment is preserved. Development-only Vercel values
 
 Backup/restore, real Telegram domain/login/webhook/support delivery, real Stream upload/playback/expiry, signed-in mobile/device scenarios and PROD release smoke remain unverified. No real client data or private video was used. Real-customer privacy/retention qualification remains required. PROD was intentionally preserved because these release gates have not passed.
 
-Next executable integration step: link the existing approved Vercel project to Git without a Production deployment, then configure the branch DEV values. When the Owner resumes Telegram and Cloudflare setup, walk verified Telegram login → manual approval → browser/session denial → CMS → learning/progress → Stream/support and rehearse restore. Only then review/merge and release DEV → PROD with immediate authenticated smoke and rollback available.
+Next executable integration step: validate the hosted branch deployment and its exact DEV origin. When the Owner resumes Telegram and Cloudflare setup, walk verified Telegram login → manual approval → browser/session denial → CMS → learning/progress → Stream/support and rehearse restore. Only then review/merge and release DEV → PROD with immediate authenticated smoke and rollback available.
 
 ## Resource verification
 

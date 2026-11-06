@@ -4,6 +4,8 @@ Use Vercel Development for local DEV configuration and Preview scoped to `codex/
 
 The existing demo project must be connected to `kires0214/Nazerke-academy` before Vercel permits branch-scoped variables. Connecting Git must not initiate or promote a Production deployment. Keep the existing Production deployment and global build settings unchanged; use explicit Preview deployment settings for the Next.js branch. Do not create another project or enable automatic Production deployment as a workaround.
 
+The feature branch supplies those deployment settings in `vercel.json`: Next.js, the existing install/build scripts and Frankfurt Functions beside the DEV database. Keep environment values in Vercel, outside this configuration file. Telegram and Cloudflare values can remain absent while their setup is deferred; the app must fail closed for those unavailable integrations.
+
 ## Account-owned setup
 
 1. Connect a separate Neon DEV resource through the approved Vercel team. Scope its connection string to DEV only. If the integration creates `POSTGRES_URL` or `POSTGRES_URL_NON_POOLING`, explicitly map the selected DEV connection string to `DATABASE_URL`, which this application reads. Never share the Production database. Agent integration discovery may require account permissions not available to the current connection; complete that step in the provider/Vercel dashboard when needed.
