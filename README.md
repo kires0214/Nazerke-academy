@@ -19,9 +19,34 @@
 
 ## Текущий код
 
-legacy-demo содержит архив действующего статического сайта JUICY v3.2. Это визуальный и функциональный референс, **а не production backend**. Реальная авторизация и CMS будут реализованы Codex.
+legacy-demo содержит неизменённый архив JUICY v3.2. Приложение в src/ использует Next.js App Router, PostgreSQL и серверную проверку доступа. Состояние аккаунтов, контента, прогресса и поддержки хранится в БД; переключателя ролей и localStorage-авторизации нет.
 
-После клонирования: npm install; npm run demo:assets (загрузка и проверка публично доступных изображений); npm run demo:check; npm run demo:dev (локальный сервер localhost:3000). Для статического baseline зависимости не требуются.
+После клонирования: `npm ci`, `npm run demo:assets`, `npm test`, `npm run typecheck`, `npm run build`. Сборка автоматически проверяет и копирует 25 исходных изображений в игнорируемый public/assets. `npm start` запускает собранное приложение. Без credentials публичный сайт работает, закрытые операции возвращают отказ или 503. Mock используется только в тестах.
+
+### DEV
+
+Используйте отдельный Neon DEV и Vercel Development / branch Preview как DEV. Не создавайте TEST. Скопируйте только имена ключей из .env.example в Vercel; значения держите в Vercel secrets / игнорируемом .env.local. CLI-скриптам передавайте их через окружение процесса, например `node --env-file=.env.local --import tsx scripts/migrate.ts`.
+
+После привязки Vercel и проверки окружения: `npm run db:migrate`, `npm run db:seed` (строго APP_ENV=DEV), `npm run dev`. Seed содержит только синтетический текст и исходные публичные названия, не создаёт аккаунты, не загружает частные уроки и не создаёт событий.
+
+Подключение Neon / Telegram / Stream, точные DEV scopes и безопасные команды проверки описаны в [docs/DEV_SETUP.md](docs/DEV_SETUP.md). `npm run dev:check-env` проверяет имена и формат текущих переменных без сетевых запросов; `npm run dev:check-services` дополнительно выполняет только чтение у провайдеров. Код выхода 2 означает отсутствующий setup, а не успешную интеграцию. Значения секретов не выводятся.
+
+Первый Tech Admin: сначала выполнить настоящий проверенный вход Telegram; временно задать BOOTSTRAP_TECHADMIN_TELEGRAM_ID через секрет окружения CLI, затем `npm run db:bootstrap-admin`. Скрипт работает только пока Tech Admin отсутствует, требует существующего аккаунта, отзывает сессии и пишет аудит. Удалить временный ключ и войти снова. Веб-эндпоинта bootstrap нет.
+
+### Структура
+
+- src/app/(public), academy, admin — три отдельных интерфейса.
+- src/lib/security.ts — Telegram HMAC, сессии, браузер, RBAC; accounts.ts — подтверждение, роли, grants.
+- src/lib/content.ts — CMS, иерархия и канонические связи; PostgreSQL content — типизированные узлы course/module/lesson/recipe и др., content_links — связи без копирования рецептов.
+- src/lib/api.ts — валидированные API; providers.ts / support.ts — Stream, Telegram, outbox и поддержка.
+- migrations/ — контрольные суммы миграций, ограничения, индексы, append-only аудит.
+- tests/ — PostgreSQL-совместимый PGlite и mock внешних HTTP-провайдеров. Движок закрывается после каждого сценария; отдельного сервера нет.
+
+Изображения/PDF CMS до 4 МБ хранятся в PostgreSQL и выдаются после проверки доступа. PDF-ссылки имеют TTL 120 секунд и привязаны к текущей сессии. Видео загружается напрямую в Cloudflare Stream с requireSignedURLs; backend выдаёт viewer token на 120 секунд. Уже выданный bearer token действует до истечения TTL; прекращение сессии немедленно запрещает новые tokens. Поддержка сохраняется до отправки Telegram; outbox имеет повторные попытки и ручной повтор в Studio, доставка at-least-once.
+
+### Границы проверки
+
+Локальные проверки не подтверждают реальную настройку Telegram, Neon, Stream, independent-connection races, backup/restore или готовность обработки реальных персональных данных. PROD остаётся под release gates из docs/RELEASE.md. Детальные команды и ограничения фиксируются в docs/IMPLEMENTATION.md и docs/DEV_RECEIPT.md.
 
 ## Внимание: репозиторий PUBLIC
 

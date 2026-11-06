@@ -18,3 +18,8 @@ test-results/
 *.key
 legacy-demo/assets/*
 !legacy-demo/assets/.gitkeep
+public/assets/
+.vercel/
+*.tsbuildinfo
+.task/
+/docs/RESOURCE_LEDGER.md

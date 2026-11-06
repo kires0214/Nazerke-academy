@@ -2,16 +2,46 @@
   "name": "juicy-academy",
   "private": true,
   "version": "0.1.0",
-  "description": "JUICY Academy source baseline and Codex handoff",
+  "description": "JUICY Academy: public site, private learning and Studio",
   "type": "module",
   "scripts": {
     "demo:assets": "node scripts/sync-demo-assets.mjs",
     "demo:verify-assets": "node scripts/sync-demo-assets.mjs --verify",
     "demo:check": "node --check legacy-demo/app.js && node scripts/check-demo.mjs",
     "demo:dev": "node scripts/static-server.mjs",
-    "test": "npm run demo:check"
+    "dev": "next dev",
+    "prebuild": "npm run demo:assets && npm run assets:prepare",
+    "build": "next build --webpack",
+    "start": "next start",
+    "assets:prepare": "node scripts/prepare-assets.mjs",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run demo:check && tsx --test --test-concurrency=1 tests/*.test.ts",
+    "db:migrate": "tsx scripts/migrate.ts",
+    "db:seed": "tsx scripts/seed.ts",
+    "db:bootstrap-admin": "tsx scripts/bootstrap-admin.ts",
+    "dev:check-env": "tsx scripts/check-dev.ts",
+    "dev:check-services": "tsx scripts/check-dev.ts --live",
+    "smoke": "node scripts/smoke.mjs"
   },
   "engines": {
-    "node": ">=20"
+    "node": ">=22.13"
+  },
+  "dependencies": {
+    "next": "^16.4.5",
+    "pg": "^8.23.1",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "sharp": "^0.35.5",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.15",
+    "@types/node": "^26.6.6",
+    "@types/pg": "^8.23.1",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "playwright": "^1.65.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
   }
 }
