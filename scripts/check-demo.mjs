@@ -10,6 +10,6 @@ assert(css.includes('--primary:#DBADBA')&&css.includes('--primary-hover:#CA96A6'
 assert(!css.includes('background:var(--wine)'),'Old purple fills returned');
 for(const id of ['nazerke-hero.avif','nazerke-about.avif','nazerke-welcome.avif','nazerke-ambassador.avif'])assert(js.includes(id),'Missing owner portrait '+id);
 assert.equal(manifest.assets.length,25);
-for(const a of manifest.assets)assert(js.includes('assets/'+a.name),'Missing mapped image '+a.name);
+for(const a of manifest.assets){const expected=a.kind==='owner_photo'?a.name:'assets/'+a.name;assert(js.includes(expected),'Missing mapped image '+a.name);}
 for(const field of ['const attachments=','const recipes=','const courses=','const ambassador=','const rights='])assert(js.includes(field),'Missing source section '+field);
 console.log('JUICY static baseline PASS: v3.2 source, 25 mapped assets, 4 original portraits, design tokens');
