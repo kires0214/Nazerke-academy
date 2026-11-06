@@ -1,0 +1,160 @@
+{
+  "source": "https://nazerke-academy-demo.vercel.app",
+  "projectId": "prj_vmCd6wkwTL6xTN8uyCBNk1kFHWE7",
+  "deploymentId": "dpl_4XxYdQEjksdNu3BJADHpWpvcCXua",
+  "version": "v3.2",
+  "integrity": "SHA1 and byte count from verified Vercel deployment source",
+  "assets": [
+    {
+      "name": "biscuit.webp",
+      "sha1": "3064d0f4159b09e75bbad5a4f9e6e9f4f31ad70c",
+      "size": 32740,
+      "kind": "demo_image"
+    },
+    {
+      "name": "blender.webp",
+      "sha1": "3975de3e853ed835f61d0569e32142eafa4ea209",
+      "size": 12958,
+      "kind": "demo_image"
+    },
+    {
+      "name": "bread.webp",
+      "sha1": "084d763acb7ce0c9a75c9ab7718d76a7b6f24ffd",
+      "size": 28058,
+      "kind": "demo_image"
+    },
+    {
+      "name": "cleaning.webp",
+      "sha1": "2681e3a147a5b2cb27292aacf823cf3bb967c21f",
+      "size": 6268,
+      "kind": "demo_image"
+    },
+    {
+      "name": "hook.webp",
+      "sha1": "2681e3a147a5b2cb27292aacf823cf3bb967c21f",
+      "size": 6268,
+      "kind": "demo_image"
+    },
+    {
+      "name": "cutter.webp",
+      "sha1": "ea752098e2f9c5cb84c8c2efd7d4df34fdb21f99",
+      "size": 7510,
+      "kind": "demo_image"
+    },
+    {
+      "name": "dicer.webp",
+      "sha1": "43e35b95da137f3b48e7d856e1d96fa97f9c76fe",
+      "size": 16450,
+      "kind": "demo_image"
+    },
+    {
+      "name": "dough.webp",
+      "sha1": "cece73f1ad754dccaa8982191fd511daca6229d5",
+      "size": 21292,
+      "kind": "demo_image"
+    },
+    {
+      "name": "juicer.webp",
+      "sha1": "a2e1f421ee9adf7e83d2605daa5d518e97b1c9ee",
+      "size": 21514,
+      "kind": "demo_image"
+    },
+    {
+      "name": "manti.webp",
+      "sha1": "da2ca5e2657cfc23d9c5484a35873de2908d3ae9",
+      "size": 24116,
+      "kind": "demo_image"
+    },
+    {
+      "name": "mincer.webp",
+      "sha1": "96a0121abd54a8036295ee5e5cebe2379b00775f",
+      "size": 10742,
+      "kind": "demo_image"
+    },
+    {
+      "name": "mixer.webp",
+      "sha1": "7d7c1e4fe2f8f43fe51bb2195b40dfd76ecbdb24",
+      "size": 14598,
+      "kind": "demo_image"
+    },
+    {
+      "name": "nazerke-about.avif",
+      "sha1": "bc506efee1d0ed373c26ccea1d4c68830c5ffbe9",
+      "size": 78760,
+      "kind": "owner_photo"
+    },
+    {
+      "name": "nazerke-ambassador.avif",
+      "sha1": "eb5919e3bf4cdc4a0821e9c4b67122ef2a30995c",
+      "size": 58572,
+      "kind": "owner_photo"
+    },
+    {
+      "name": "nazerke-hero.avif",
+      "sha1": "c9565380ddebe00f4756f37ce26c5164cd9f1f03",
+      "size": 44990,
+      "kind": "owner_photo"
+    },
+    {
+      "name": "nazerke-welcome.avif",
+      "sha1": "ae433d5107ea96443e52b4451cec1e4de81894a6",
+      "size": 43106,
+      "kind": "owner_photo"
+    },
+    {
+      "name": "pasta.webp",
+      "sha1": "3004be2e4eb121827ab0b77c74fc5ae268ddfdb0",
+      "size": 25926,
+      "kind": "demo_image"
+    },
+    {
+      "name": "pizza.webp",
+      "sha1": "c2f423cd49298613d5d5f41641876d942604ca4e",
+      "size": 27750,
+      "kind": "demo_image"
+    },
+    {
+      "name": "processor.webp",
+      "sha1": "2f83b53918feb351dcc352c0f779050924729b26",
+      "size": 9046,
+      "kind": "demo_image"
+    },
+    {
+      "name": "roller.webp",
+      "sha1": "42e2446c677170eae93b052ffa40dc5efa411334",
+      "size": 7512,
+      "kind": "demo_image"
+    },
+    {
+      "name": "salad.webp",
+      "sha1": "2501ff618b4df78121a1ae8996eef9268bfe5207",
+      "size": 26026,
+      "kind": "demo_image"
+    },
+    {
+      "name": "smoothie.webp",
+      "sha1": "63ddff5a19452c76ec76fbdff7233f98119a8aef",
+      "size": 26144,
+      "kind": "demo_image"
+    },
+    {
+      "name": "soup.webp",
+      "sha1": "acefb0c93749c75497e3c5b685d4cee3a0703ddc",
+      "size": 34356,
+      "kind": "demo_image"
+    },
+    {
+      "name": "tiramisu.webp",
+      "sha1": "a4dd8fdc12d14ec1b4da5d9d37a5ac557802ed28",
+      "size": 31896,
+      "kind": "demo_image"
+    },
+    {
+      "name": "whisk.webp",
+      "sha1": "8e394d9436f3380cf91f165bc17cc26dc42b70f4",
+      "size": 18814,
+      "kind": "demo_image"
+    }
+  ],
+  "notes": "Repo is PUBLIC; binary assets intentionally downloadable by manifest but not committed here. Publish no secrets or new unpublished private content."
+}

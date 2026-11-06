@@ -1,0 +1,15 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+const base=new URL('../legacy-demo/',import.meta.url);
+const html=await fs.readFile(new URL('index.html',base),'utf8');
+const css=await fs.readFile(new URL('styles.css',base),'utf8');
+const js=await fs.readFile(new URL('app.js',base),'utf8');
+const manifest=JSON.parse(await fs.readFile(new URL('asset-manifest.json',base),'utf8'));
+assert(html.includes('id="app"')&&html.includes('app.js')&&html.includes('styles.css'));
+assert(css.includes('--primary:#DBADBA')&&css.includes('--primary-hover:#CA96A6')&&css.includes('--primary-text:#352C31'));
+assert(!css.includes('background:var(--wine)'),'Old purple fills returned');
+for(const id of ['nazerke-hero.avif','nazerke-about.avif','nazerke-welcome.avif','nazerke-ambassador.avif'])assert(js.includes(id),'Missing owner portrait '+id);
+assert.equal(manifest.assets.length,25);
+for(const a of manifest.assets)assert(js.includes('assets/'+a.name),'Missing mapped image '+a.name);
+for(const field of ['const attachments=','const recipes=','const courses=','const ambassador=','const rights='])assert(js.includes(field),'Missing source section '+field);
+console.log('JUICY static baseline PASS: v3.2 source, 25 mapped assets, 4 original portraits, design tokens');
