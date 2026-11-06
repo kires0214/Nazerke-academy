@@ -2,6 +2,7 @@ import {chromium} from 'playwright';
 import {spawn,execFileSync} from 'node:child_process';
 import {once} from 'node:events';
 import {mkdir,writeFile,readFile} from 'node:fs/promises';
+import {readFileSync,readlinkSync,readdirSync} from 'node:fs';
 import {createConnection} from 'node:net';
 import assert from 'node:assert/strict';
 import {fileURLToPath} from 'node:url';
@@ -12,21 +13,33 @@ const ledger={owner:'CODEX_PRIMARY / issue #1',createdAt:new Date().toISOString(
 const taskShell=process.env.TASK_PWSH_PATH;
 async function record(){await writeFile(new URL('runtime.json',auditDir),JSON.stringify(ledger,null,2));}
 function nativeIdentity(pid) {
-  if(process.platform!=='win32')return {pid};
+  if(process.platform!=='win32') {
+    try {const raw=readFileSync(`/proc/${Number(pid)}/stat`,'utf8'),fields=raw.slice(raw.lastIndexOf(')')+2).split(' ');
+      return {ProcessId:Number(pid),CreationDate:'proc-start-ticks:'+fields[19],ExecutablePath:readlinkSync(`/proc/${Number(pid)}/exe`)};
+    }catch(error){if(error.code==='ENOENT'||error.code==='ESRCH')return null;throw error;}
+  }
   assert(taskShell,'Set TASK_PWSH_PATH to the current PowerShell 7 executable');
   const command=`$taskIdentity=Get-Process -Id ${Number(pid)} -ErrorAction SilentlyContinue | Select-Object @{n='ProcessId';e={$_.Id}},@{n='CreationDate';e={$_.StartTime.ToUniversalTime().ToString('o')}},@{n='ExecutablePath';e={$_.Path}};ConvertTo-Json -InputObject $taskIdentity -Compress;exit 0`;
   return JSON.parse(execFileSync(taskShell,['-NoProfile','-NonInteractive','-Command',command],{encoding:'utf8',windowsHide:true}).trim()||'null');
 }
 function nativeChildren(pid) {
-  if(process.platform!=='win32')return [];
+  if(process.platform!=='win32') {
+    const candidates=[];
+    for(const name of readdirSync('/proc').filter(n=>/^\d+$/.test(n))) {
+      try {const raw=readFileSync(`/proc/${name}/stat`,'utf8'),fields=raw.slice(raw.lastIndexOf(')')+2).split(' ');candidates.push({pid:Number(name),parent:Number(fields[1])});}catch{}
+    }
+    const owned=new Set([Number(pid)]),result=[];let added=true;
+    while(added){added=false;for(const entry of candidates)if(!owned.has(entry.pid)&&owned.has(entry.parent)){owned.add(entry.pid);const identity=nativeIdentity(entry.pid);if(identity)result.push({...identity,ParentProcessId:entry.parent});added=true;}}
+    return result;
+  }
   const command=`$taskQueue=[Collections.Generic.Queue[int]]::new();$taskQueue.Enqueue(${Number(pid)});$taskOwned=@();$taskSnapshot=Get-Process;while($taskQueue.Count){$taskParent=$taskQueue.Dequeue();$taskFound=@($taskSnapshot|Where-Object {try{$_.Parent.Id -eq $taskParent}catch{$false}});foreach($taskChild in $taskFound){$taskOwned+=$taskChild|Select-Object @{n='ProcessId';e={$_.Id}},@{n='ParentProcessId';e={$_.Parent.Id}},@{n='CreationDate';e={$_.StartTime.ToUniversalTime().ToString('o')}},@{n='ExecutablePath';e={$_.Path}};$taskQueue.Enqueue([int]$taskChild.Id)}};ConvertTo-Json -InputObject @($taskOwned) -Compress`;
   return JSON.parse(execFileSync(taskShell,['-NoProfile','-NonInteractive','-Command',command],{encoding:'utf8',windowsHide:true}).trim()||'[]');
 }
 function survivors(children){return children.filter(identity=>{const current=nativeIdentity(identity.ProcessId);return current&&(!current.CreationDate||current.CreationDate===identity.CreationDate);});}
 async function portOpen(){return new Promise(resolve=>{const socket=createConnection({port,host:'127.0.0.1'});socket.once('connect',()=>{socket.destroy();resolve(true);});socket.once('error',()=>{socket.destroy();resolve(false);});});}
 assert.equal(await portOpen(),false,'QA port is already owned; do not reuse or stop it');
+assert(nativeIdentity(process.pid),'Native process identity API unavailable; no startup');
 if(process.platform==='win32') {
-  assert(nativeIdentity(process.pid),'Native process identity API unavailable; no startup');
   assert(nativeChildren(process.pid).some(p=>p.ExecutablePath?.toLowerCase()===taskShell.toLowerCase()),'Child process inspection unavailable; no startup');
 }
 const next=spawn(process.execPath,['node_modules/next/dist/bin/next','start','--hostname','127.0.0.1','--port',String(port)],{
@@ -71,4 +84,4 @@ try {
   const current=nativeIdentity(next.pid),remaining=survivors(nextChildren);const listening=await portOpen();ledger.cleanup.push({kind:'Next server',pid:next.pid,exited:!current,remainingChildren:remaining,portReleased:!listening});
   await writeFile(new URL('server.log',auditDir),output);await record();assert(!current&&!listening&&ledger.cleanup.every(x=>x.exited&&!x.remainingChildren?.length),'Owned resource cleanup failed');
 }
-console.log(JSON.stringify({checks:ledger.checks,cleanup:ledger.cleanup,evidence:fileURLToPath(auditDir)}));
+console.log(JSON.stringify({checks:ledger.checks,cleanupVerified:ledger.cleanup.every(x=>x.exited&&!x.remainingChildren?.length)}));
