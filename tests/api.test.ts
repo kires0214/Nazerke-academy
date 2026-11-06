@@ -8,7 +8,7 @@ import { cookieNames } from '../src/lib/http';
 import { contentSchema,saveContent } from '../src/lib/content';
 import { deliverClaimed,dispatchOutbox,processTelegramUpdate } from '../src/lib/support';
 import { privatePlayback,telegramSend } from '../src/lib/providers';
-import type { Tokens } from '../src/lib/security';
+import { downloadSignature,type Tokens } from '../src/lib/security';
 
 process.env.APP_BASE_URL='https://dev.juicy.invalid';process.env.APP_ENV='DEV';
 function request(path:string,method='GET',body?:unknown,tokens?:Tokens,origin='https://dev.juicy.invalid',extra:Record<string,string>={}) {
@@ -85,13 +85,17 @@ test('Stream adapter requests private 120-second tokens; rejects public, unready
   }finally{if(saved.account)process.env.CLOUDFLARE_ACCOUNT_ID=saved.account;else delete process.env.CLOUDFLARE_ACCOUNT_ID;if(saved.secret)process.env.CLOUDFLARE_STREAM_API_TOKEN=saved.secret;else delete process.env.CLOUDFLARE_STREAM_API_TOKEN;}
 });
 test('private files and video endpoints deny pending users, unentitled staff, hidden content and missing authentication',async()=>{
-  const f=await fixture();try {const student=await f.account(),pending=await f.account('student','pending',[]),staff=await f.account('admin','approved',[],['content.read']);
+  const f=await fixture();process.env.TELEGRAM_BOT_TOKEN='999999999:synthetic_DEV_signing_only';try {const student=await f.account(),pending=await f.account('student','pending',[]),staff=await f.account('admin','approved',[],['content.read']);
     const recipe=(await f.engine.query<{id:string}>("SELECT id FROM content WHERE slug='pasta'")).rows[0];
     const media=(await f.engine.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by) VALUES('document','postgres','application/pdf',$1,'ready',$2) RETURNING id",[Buffer.from('%PDF-Synthetic DEV'),student.id])).rows[0];
     await f.engine.query('INSERT INTO content_media(content_id,media_id) VALUES($1,$2)',[recipe.id,media.id]);
     const path=['media',media.id,'file'];
     for(const [tokens,status] of [[undefined,401],[pending.tokens,403],[staff.tokens,403]] as const)assert.equal((await handleApi(request(path.join('/'),'GET',undefined,tokens),path,f.run)).status,status);
-    const response=await handleApi(request(path.join('/'),'GET',undefined,student.tokens),path,f.run);assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'application/pdf');assert.match(response.headers.get('Cache-Control')!,/no-store/);
+    assert.equal((await handleApi(request(path.join('/'),'GET',undefined,student.tokens),path,f.run)).status,403);
+    const ticket=await handleApi(request(`media/${media.id}/download`,'GET',undefined,student.tokens),['media',media.id,'download'],f.run);const {url}=await ticket.json();
+    const response=await handleApi(new NextRequest('https://dev.juicy.invalid'+url,{headers:{Cookie:request('profile','GET',undefined,student.tokens).headers.get('Cookie')!}}),path,f.run);assert.equal(response.status,200);assert.equal(response.headers.get('Content-Type'),'application/pdf');assert.match(response.headers.get('Cache-Control')!,/no-store/);
+    const expired=Math.floor(Date.now()/1000)-1,sig=downloadSignature(media.id,student.tokens.session!,expired);
+    assert.equal((await handleApi(request(path.join('/')+`?expires=${expired}&signature=${sig}`,'GET',undefined,student.tokens),path,f.run)).status,403);
     await f.engine.query("UPDATE content SET status='hidden' WHERE id=$1",[recipe.id]);assert.equal((await handleApi(request(path.join('/'),'GET',undefined,student.tokens),path,f.run)).status,403);
   }finally{await f.close();}
 });

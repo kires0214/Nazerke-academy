@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { withDb, type Db } from './db';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
-import { audit, createLogin, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
+import { audit, createLogin, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
 import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
 import { updateAccount } from './accounts';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
@@ -46,6 +46,7 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       response.headers.set('Cache-Control','private, no-store'); response.headers.set('Referrer-Policy','no-referrer');
       cookiesForLogin(response,result.sessionToken,result.deviceToken); return response;
     }
+    if(key!=='content')check(requestTokens(req).session&&requestTokens(req).device,401,'LOGIN_REQUIRED');
     if(method!=='GET') sameOrigin(req);
     if(key==='auth/logout' && method==='POST') {
       await run(async db=>{const p=await principal(db,requestTokens(req),true);
@@ -139,12 +140,14 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         const media=(await db.query<{kind:string;provider_id:string;state:string;mime:string;bytes:Buffer}>('SELECT kind,provider_id,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
         check(media?.state==='ready',409,'MEDIA_NOT_READY');
         if(path[2]==='playback') {check(media.kind==='video',400,'VIDEO_REQUIRED');await rateLimit(db,'playback:'+p.id,20);return privatePlayback(media.provider_id);}
-        if(path[2]==='file') {check(media.kind!=='video',400,'FILE_REQUIRED');return new NextResponse(new Uint8Array(media.bytes),{headers:{'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`${media.kind==='document'?'attachment':'inline'}; filename="${id}.${media.kind==='document'?'pdf':'img'}"`,'Content-Security-Policy':"default-src 'none'; sandbox"}});}
+        if(path[2]==='download') {check(media.kind==='document',400,'DOCUMENT_REQUIRED');const expires=Math.floor(Date.now()/1000)+120;const signature=downloadSignature(id,requestTokens(req).session!,expires);return {url:`/api/media/${id}/file?expires=${expires}&signature=${signature}`};}
+        if(path[2]==='file') {check(media.kind!=='video',400,'FILE_REQUIRED');if(media.kind==='document')verifyDownload(id,requestTokens(req).session!,Number(url.searchParams.get('expires')),url.searchParams.get('signature')??'');return new NextResponse(new Uint8Array(media.bytes),{headers:{'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`${media.kind==='document'?'attachment':'inline'}; filename="${id}.${media.kind==='document'?'pdf':'img'}"`,'Content-Security-Policy':"default-src 'none'; sandbox"}});}
       }
       if(path[0]==='events'&&path[2]==='register'&&path.length===3&&method==='POST') {
+        // Acquire the exclusive event lock before catalog share locks, avoiding lock-upgrade races.
+        await db.query('SELECT id FROM content WHERE id=$1 FOR UPDATE',[uuid(path[1])]);
         const event=await getContent(db,uuid(path[1]),p);check(event.kind==='event',400,'EVENT_REQUIRED');
         const data=z.object({cancel:z.boolean().default(false)}).strict().parse(await jsonBody(req));
-        await db.query('SELECT id FROM content WHERE id=$1 FOR UPDATE',[event.id]);
         check(event.data.startsAt&&new Date(event.data.startsAt)>new Date(),409,'EVENT_CLOSED');
         const registrations=(await db.query<{user_id:string;status:string}>('SELECT user_id,status FROM event_registrations WHERE event_id=$1',[event.id])).rows;
         const existing=registrations.find(r=>r.user_id===p.id);
@@ -166,13 +169,14 @@ async function uploadFile(db:Db,p:Principal,req:NextRequest) {
   requireGrant(p,'media.upload');await rateLimit(db,'upload:'+p.id,10);
   const mime=req.headers.get('content-type')??'';
   check(['application/pdf','image/jpeg','image/png','image/webp'].includes(mime),415,'MEDIA_TYPE_DENIED');
-  const bytes=await limitedBytes(req,5000000);
+  const bytes=await limitedBytes(req,4000000);
   check(bytes.length>8,400,'INVALID_FILE');
   if(mime==='application/pdf') check(bytes.subarray(0,5).toString()==='%PDF-',400,'INVALID_PDF');
   else {
     const sharp=(await import('sharp')).default;
     const info=await sharp(bytes,{limitInputPixels:25000000}).metadata();
-    check(info.width&&info.height&&info.width<=10000&&info.height<=10000&&['jpeg','png','webp'].includes(info.format??''),400,'INVALID_IMAGE');
+    const expected:Record<string,string>={'image/jpeg':'jpeg','image/png':'png','image/webp':'webp'};
+    check(info.width&&info.height&&info.width<=10000&&info.height<=10000&&info.format===expected[mime],400,'INVALID_IMAGE');
   }
   const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by) VALUES($1,'postgres',$2,$3,'ready',$4) RETURNING id",[mime==='application/pdf'?'document':'image',mime,bytes,p.id])).rows[0];
   await audit(db,p.id,'media.upload',media.id);return media;

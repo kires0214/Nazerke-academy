@@ -11,6 +11,15 @@ export type Principal = { id: string; display_name: string; role: Role; status: 
 export type Tokens = { session?: string; device?: string };
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const token = () => randomBytes(32).toString('base64url');
+export function downloadSignature(mediaId:string,sessionToken:string,expires:number) {
+  const secret=process.env.TELEGRAM_BOT_TOKEN;
+  check(secret&&secret.length>20,503,'DOWNLOAD_SIGNING_NOT_CONFIGURED');
+  return createHmac('sha256',secret).update(`juicy-document-v1\n${mediaId}\n${hash(sessionToken)}\n${expires}`).digest('base64url');
+}
+export function verifyDownload(mediaId:string,sessionToken:string,expires:number,signature:string) {
+  const now=Math.floor(Date.now()/1000);
+  check(Number.isSafeInteger(expires)&&expires>now&&expires<=now+120&&equal(signature,downloadSignature(mediaId,sessionToken,expires)),403,'DOWNLOAD_LINK_EXPIRED');
+}
 export function equal(a: string, b: string) { const left=Buffer.from(a),right=Buffer.from(b);return left.length === right.length && timingSafeEqual(left,right); }
 
 const loginSchema = z.object({

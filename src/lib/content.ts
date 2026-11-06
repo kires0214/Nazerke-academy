@@ -37,7 +37,7 @@ export function visible(node: Content, all: Content[], user?: Principal): boolea
 }
 export async function listContent(db: Db, user?: Principal, studio = false) {
   if(studio) { check(user,401,'LOGIN_REQUIRED'); requireGrant(user,'content.read'); }
-  const { rows } = await db.query<Content & Record<string,unknown>>('SELECT id,kind,slug,title,description,language,audience,status,parent_id,sort_order,cover,data,version,published_at FROM content ORDER BY sort_order,title');
+  const { rows } = await db.query<Content & Record<string,unknown>>('SELECT id,kind,slug,title,description,language,audience,status,parent_id,sort_order,cover,data,version,published_at FROM content ORDER BY sort_order,title FOR SHARE');
   return studio ? rows : rows.filter(node=>visible(node,rows,user));
 }
 export async function getContent(db: Db, idOrSlug: string, user?: Principal) {
@@ -92,7 +92,10 @@ export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: s
 export async function setProgress(db: Db, user: Principal, id: string, position: number, completed: boolean) {
   const node = await getContent(db,id,user); check(node.kind==='lesson',400,'LESSON_REQUIRED');
   const all = await listContent(db,user);
-  const earlier = all.filter(n=>n.kind==='lesson' && n.parent_id===node.parent_id && n.sort_order<node.sort_order);
+  const module=all.find(n=>n.id===node.parent_id);
+  const modules=all.filter(n=>n.kind==='module'&&n.parent_id===module?.parent_id);
+  const earlier = all.filter(n=>n.kind==='lesson' && (n.parent_id===node.parent_id && n.sort_order<node.sort_order ||
+    modules.some(m=>m.id===n.parent_id&&m.sort_order<(module?.sort_order??0))));
   const done = (await db.query<{lesson_id:string}>('SELECT lesson_id FROM lesson_progress WHERE user_id=$1 AND completed_at IS NOT NULL',[user.id])).rows;
   check(earlier.every(n=>done.some(d=>d.lesson_id===n.id)),409,'COMPLETE_EARLIER_LESSONS');
   await db.query(`INSERT INTO lesson_progress(user_id,lesson_id,position_seconds,completed_at) VALUES($1,$2,$3,CASE WHEN $4 THEN now() END)

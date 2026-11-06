@@ -1,0 +1,32 @@
+name: DEV validation
+on:
+  push:
+    branches: [codex/juicy-mvp]
+  pull_request:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: dev-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  dev:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      APP_ENV: DEV
+      NEXT_TELEMETRY_DISABLED: '1'
+      PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1'
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci
+      - run: npm run demo:assets
+      - run: npm test
+      - run: npm run typecheck
+      - run: npm run build
+      - run: node scripts/browser-smoke.mjs --http-only
+      - run: npm audit --omit=dev
