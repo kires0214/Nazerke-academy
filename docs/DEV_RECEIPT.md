@@ -6,6 +6,28 @@ Baseline: `4e781ac26db6dbe7542e5e0aac2e03fb1b268791`, verified before source cha
 
 Application revision: `4ff18e5507e0821417cf39fbe04c2fd586a2436f`. Its application files are byte-identical to the executed local revision. The connected GitHub app publishes commits because local HTTPS push has no credentials; no token was copied into the checkout. Follow-up receipt/CI/privacy changes do not change application source. The private task ledger and native runtime identifiers are excluded from the public history.
 
+## Live Neon DEV continuation
+
+Validated application/readiness revision: `6ae3b71faea5162269d767d3f22df581ffaab3db`. A separate Free-plan Neon DEV project was provisioned through the authenticated Neon connection. Its pooled `DATABASE_URL` is stored as a Sensitive variable in Vercel Development only. `APP_ENV`, the local `APP_BASE_URL`, and the independently generated webhook secret remain Development-only. No Production or Preview setting or deployment was changed.
+
+| Real Neon check | Observed result |
+| --- | --- |
+| Actual migration runner, direct connection | PASS — two runs, one checksum-verified migration; source SHA-256 matches the recorded database checksum |
+| Actual synthetic seed, two runs | PASS — 38 content items, 4 relationships; 0 retained users, media, events or notification jobs |
+| Independent PostgreSQL connections | PASS — distinct simultaneous backend connections; competing first-browser logins leave one registered browser/session and reject the second browser |
+| Concurrent logins in the registered browser | PASS — exactly one resulting session remains valid; the prior session is denied |
+| Pending denial and manual approval service | PASS — synthetic pending identity denied, Tech Admin approval grants Academy access |
+| CMS/RBAC and learning persistence | PASS — draft hidden, student publication denied, authorized publication persists; search, audience exclusion, lesson order, progress and favorites verified through separate transactions |
+| Audit protection | PASS — attempted audit mutation rejected by PostgreSQL |
+| Pooled application connection | PASS — existing read-only readiness command reports `NEON_CONNECTION=PASS` and `NEON_SCHEMA=PASS` |
+| Fixture cleanup | PASS — isolated validation schema removed after ownership verification; database confirms no validation schema, retained account or application connection |
+
+These checks called the actual migration, seed and backend services against hosted PostgreSQL. They did not exercise a real Telegram account, signed-in browser, Stream playback or support delivery. The overall provider-readiness result remains **BLOCKED** because Telegram and Cloudflare setup is explicitly deferred. The local readiness process did not load the webhook secret already stored in Vercel; its local missing-secret result does not mean that Vercel setting is absent.
+
+The original CI on this application revision passed [31/31 tests, TypeScript, build, Linux HTTP smoke and dependency audit](https://github.com/kires0214/Nazerke-academy/actions/runs/42240888681). The live initialization and validation added no application source changes. Credentials, fixture identities and the private reproduction/audit script remain outside Git. The temporary credential file was removed, the local runtime exited, and the idle Neon compute was suspended and verified idle. The seeded DEV database and its Vercel secret are retained for continuing setup; a future query can resume compute.
+
+Hosted DEV is still blocked at the existing Vercel project's Git connection: Vercel returns `400` for branch-scoped variables while the project is unlinked, and the available connector cannot link an existing project. No fallback broadened credentials to all Preview branches. After the Git link is established without deploying Production, configure only `codex/juicy-mvp` for hosted DEV. Real Telegram/Stream, authenticated browser/device flows and backup/restore remain acceptance gates. Production is unchanged.
+
 ## Executed in DEV
 
 | Check | Observed result |
@@ -26,7 +48,7 @@ The automated suite executes actual SQL against an in-process PostgreSQL-compati
 
 Coverage includes official Telegram HMAC/timestamp/forgery/replay checks; pending/blocked access; all business roles; staff grants separate from learning; Tech Admin-only grant management; session hashing/replacement/expiry/revocation; browser reset and uniqueness constraints; CMS draft/publish/hide/version/audit; canonical recipe cross-links; lesson order and progress; search/filter; favorites and support ownership; CSRF; webhook secret/idempotency; support human reply; notification failure/retry; private Stream TTL/privacy; authorized PDF signatures/expiry; event capacity; stored HTML escaping.
 
-The PGlite concurrency scenario serializes transactions. It verifies the service logic and constraints, not independent Neon connection interleavings. Private shell rendering is checked by server-rendered component tests; authenticated browser flows remain a credentialed DEV gate.
+The original PGlite concurrency scenario serializes transactions. The later live Neon checks above cover independent first-browser and same-browser connection interleavings. Private shell rendering is checked by server-rendered component tests; authenticated browser flows remain a credentialed DEV gate.
 
 ## Failures repaired during execution
 
@@ -37,11 +59,11 @@ The PGlite concurrency scenario serializes transactions. It verifies the service
 
 ## External gates — not PASS
 
-The existing Vercel reference project was read only: `prj_vmCd6wkwTL6xTN8uyCBNk1kFHWE7`, team `orch-loopers`, current production deployment `dpl_4XxYdQEjksdNu3BJADHpWpvcCXua`. Its environment list was empty. No deployment, database, bot, provider account, DNS or paid resource was created or modified.
+The Production reference deployment is preserved. Development-only Vercel values and a separate Neon DEV resource were created during setup as described above. No Production setting, deployment, bot, DNS or paid plan was changed.
 
-Live Neon connectivity/migrations/races/backup restore, real Telegram domain/login/webhook/support delivery, real Stream upload/playback/expiry, signed-in mobile/device scenarios and PROD smoke remain unverified. No real client data or private video was used. Real-customer privacy/retention qualification remains required. PROD was intentionally preserved because these release gates have not passed.
+Backup/restore, real Telegram domain/login/webhook/support delivery, real Stream upload/playback/expiry, signed-in mobile/device scenarios and PROD release smoke remain unverified. No real client data or private video was used. Real-customer privacy/retention qualification remains required. PROD was intentionally preserved because these release gates have not passed.
 
-Next executable integration step: configure the separate DEV keys from `.env.example` through Vercel, link the existing approved project for DEV, verify key names without printing values, run DEV migrations and synthetic seed, then walk verified Telegram login → manual approval → browser/session denial → CMS → learning/progress → Stream/support. Only then review/merge and release DEV → PROD with immediate authenticated smoke and the recorded previous deployment available for rollback.
+Next executable integration step: link the existing approved Vercel project to Git without a Production deployment, then configure the branch DEV values. When the Owner resumes Telegram and Cloudflare setup, walk verified Telegram login → manual approval → browser/session denial → CMS → learning/progress → Stream/support and rehearse restore. Only then review/merge and release DEV → PROD with immediate authenticated smoke and rollback available.
 
 ## Resource verification
 
