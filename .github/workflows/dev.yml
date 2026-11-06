@@ -1,7 +1,5 @@
 name: DEV validation
 on:
-  push:
-    branches: [codex/juicy-mvp]
   pull_request:
     branches: [main]
 permissions:

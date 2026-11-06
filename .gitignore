@@ -22,3 +22,4 @@ public/assets/
 .vercel/
 *.tsbuildinfo
 .task/
+/docs/RESOURCE_LEDGER.md
