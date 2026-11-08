@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { withDb, type Db } from './db';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
-import { audit, createLogin, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
+import { audit, canLearn, createLogin, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
 import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
 import { updateAccount } from './accounts';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
-import { privatePlayback, streamApi } from './providers';
+import { verifyMuxWebhook } from './mux';
+import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
 
 type Runner = <T>(work:(db:Db)=>Promise<T>)=>Promise<T>;
 const uuid=(value:string)=>z.uuid().parse(value);
@@ -16,6 +17,13 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
   const key=path.join('/'), method=req.method, url=req.nextUrl;
   try {
     if(key==='health') return apiResponse({service:'JUICY',environment:process.env.APP_ENV??'unconfigured',databaseConfigured:!!process.env.DATABASE_URL});
+    if(key==='mux/webhook') {
+      check(method==='POST',405,'METHOD_NOT_ALLOWED');
+      check(req.headers.get('content-type')?.split(';')[0]==='application/json',415,'JSON_REQUIRED');
+      const raw=await limitedBytes(req,1024*1024);
+      const event=verifyMuxWebhook(raw,req.headers.get('mux-signature'));
+      return apiResponse(await run(db=>receiveMuxEvent(db,event)));
+    }
     if(key==='telegram/webhook') {
       check(method==='POST',405,'METHOD_NOT_ALLOWED');
       const secret=process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -118,28 +126,27 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(key==='studio/media'&&method==='GET') {requireGrant(p,'media.upload');return (await db.query('SELECT id,kind,state,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;}
       if(key==='studio/media/upload'&&method==='POST') return uploadFile(db,p,req);
-      if(key==='studio/media/stream'&&method==='POST') {
-        requireGrant(p,'media.upload');
-        const result=await streamApi('/direct_upload','POST',{maxDurationSeconds:7200,requireSignedURLs:true,allowedOrigins:[new URL(baseUrl()).hostname],expiry:new Date(Date.now()+15*60000).toISOString()});
-        check(/^[a-f0-9]{32}$/.test(result.uid),502,'INVALID_STREAM_ID');
-        const uploadUrl=new URL(result.uploadURL);check(uploadUrl.protocol==='https:'&&uploadUrl.hostname==='upload.videodelivery.net',502,'UNSAFE_UPLOAD_URL');
-        const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,provider_id,state,created_by) VALUES('video','stream',$1,'uploading',$2) RETURNING id",[result.uid,p.id])).rows[0];
-        await audit(db,p.id,'media.stream.create',media.id);return {id:media.id,uploadUrl:result.uploadURL};
+      if(key==='studio/media/mux'&&method==='POST') {
+        requireGrant(p,'media.upload');await rateLimit(db,'video-upload:'+p.id,10,3600);
+        return startVideo(db,p,baseUrl());
       }
       if(path[0]==='studio'&&path[1]==='media'&&path.length===4&&path[3]==='refresh'&&method==='POST') {
-        requireGrant(p,'media.upload'); const media=(await db.query<{provider_id:string}>("SELECT provider_id FROM media WHERE id=$1 AND provider='stream' FOR UPDATE",[uuid(path[2])])).rows[0];check(media,404,'MEDIA_NOT_FOUND');
-        const info=await streamApi('/'+media.provider_id);check(info.requireSignedURLs===true,409,'STREAM_MUST_BE_PRIVATE');
-        const state=info.readyToStream?'ready':info.status?.state==='error'?'failed':'processing';
-        await db.query('UPDATE media SET state=$2 WHERE id=$1',[path[2],state]);return {state};
+        return refreshVideo(db,p,uuid(path[2]));
       }
       if(path[0]==='media'&&path.length===3&&method==='GET') {
         const id=uuid(path[1]);
         const nodes=await listContent(db,p);
         const links=(await db.query<{content_id:string}>('SELECT content_id FROM content_media WHERE media_id=$1',[id])).rows;
         check(links.some(l=>nodes.some(n=>n.id===l.content_id)),403,'MEDIA_ACCESS_DENIED');
-        const media=(await db.query<{kind:string;provider_id:string;state:string;mime:string;bytes:Buffer}>('SELECT kind,provider_id,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
+        const media=(await db.query<{id:string;kind:string;provider:string;provider_id:string;mux_upload_id:string;mux_playback_id:string;mux_terminal:boolean;state:string;mime:string;bytes:Buffer}>('SELECT id,kind,provider,provider_id,mux_upload_id,mux_playback_id,mux_terminal,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
         check(media?.state==='ready',409,'MEDIA_NOT_READY');
-        if(path[2]==='playback') {check(media.kind==='video',400,'VIDEO_REQUIRED');await rateLimit(db,'playback:'+p.id,20);return privatePlayback(media.provider_id);}
+        if(path[2]==='playback'||path[2]==='access') {
+          check(canLearn(p,'academy'),403,'MEDIA_ACCESS_DENIED');
+          check(media.kind==='video'&&media.provider==='mux'&&!media.mux_terminal,409,'MUX_VIDEO_REQUIRED');
+          await rateLimit(db,'playback:'+p.id,20);
+          if(path[2]==='access')return {authorized:true};
+          return authorizedMuxPlayback(db,media,requestTokens(req).session!);
+        }
         if(path[2]==='download') {check(media.kind==='document',400,'DOCUMENT_REQUIRED');const expires=Math.floor(Date.now()/1000)+120;const signature=downloadSignature(id,requestTokens(req).session!,expires);return {url:`/api/media/${id}/file?expires=${expires}&signature=${signature}`};}
         if(path[2]==='file') {check(media.kind!=='video',400,'FILE_REQUIRED');if(media.kind==='document')verifyDownload(id,requestTokens(req).session!,Number(url.searchParams.get('expires')),url.searchParams.get('signature')??'');return new NextResponse(new Uint8Array(media.bytes),{headers:{'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`${media.kind==='document'?'attachment':'inline'}; filename="${id}.${media.kind==='document'?'pdf':'img'}"`,'Content-Security-Policy':"default-src 'none'; sandbox"}});}
       }

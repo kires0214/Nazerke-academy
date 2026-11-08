@@ -1,6 +1,8 @@
 # JUICY Academy — полное техническое задание
 Owner-approved MVP scope, редакция 2026-11-06.
 
+Owner override 2026-11-08: Mux Basic 1080p replaces the prior video provider. Direct browser uploads, verified webhooks, signed private playback and duration-aware renewal; DRM disabled. See MUX_SETUP.md.
+
 ## 1. Бизнес-цель и критерий успеха
 
 Создать доступную в браузере закрытую академию кулинарии Назерке для покупателей Kenwood с промокодом JUICY. Дать им уроки, видео, рецепты, насадки, курсы, анонсы и поддержку. Назерке должна самостоятельно управлять публикациями и доступом через понятную админку.
@@ -59,7 +61,7 @@ Telegram bot webhook получает update с проверяемым secret, i
 
 ## 8. Медиа и документы
 
-Cloudflare Stream для закрытых видео. После проверки user/session/content entitlement сервер генерирует краткоживущий signed playback token/URL. Нет публичной постоянной ссылки в markup, API, клиентских исходниках и логах. Обработать processing/upload-failed/expired. Прямой запрет записи экрана не обещаем. Документы выдавать через подписанную ссылку после проверки доступа. Изображения витрины могут быть публичными; авторские фото и контент не генерировать автоматически.
+Mux для закрытых видео. После проверки user/session/content entitlement сервер генерирует signed playback token/URL с длительностью урока и безопасным обновлением. Нет публичной постоянной ссылки в markup, API, клиентских исходниках и логах. Обработать processing/upload-failed/expired. Прямой запрет записи экрана не обещаем. Документы выдавать через подписанную ссылку после проверки доступа. Изображения витрины могут быть публичными; авторские фото и контент не генерировать автоматически.
 
 ## 9. UI и visual
 
@@ -67,7 +69,7 @@ Cloudflare Stream для закрытых видео. После проверк�
 
 ## 10. Технологии / non-functional
 
-Next.js App Router с TypeScript на Vercel, серверные Route Handlers/Server Actions. PostgreSQL Neon с миграциями, атомарными транзакциями и indexes; Cloudflare Stream; Telegram. Минимум внешних сервисов и отсутствие постоянного сервера. Раздельные DEV и PROD базы/секреты. Защита от XSS/CSRF, IDOR, replay, privilege escalation; лимиты на загрузку и rate limiting. Логи без секретов, резервное копирование и тест восстановления до реальных пользователей. Уточнить требования Казахстана к персональным данным до пилота; не использовать реальные клиентские данные в DEV. Адаптивность mobile-first, понятные error/loading/empty states, доступность клавиатуры и контраст.
+Next.js App Router с TypeScript на Vercel, серверные Route Handlers/Server Actions. PostgreSQL Neon с миграциями, атомарными транзакциями и indexes; Mux; Telegram. Минимум внешних сервисов и отсутствие постоянного сервера. Раздельные DEV и PROD базы/секреты. Защита от XSS/CSRF, IDOR, replay, privilege escalation; лимиты на загрузку и rate limiting. Логи без секретов, резервное копирование и тест восстановления до реальных пользователей. Уточнить требования Казахстана к персональным данным до пилота; не использовать реальные клиентские данные в DEV. Адаптивность mobile-first, понятные error/loading/empty states, доступность клавиатуры и контраст.
 
 ## 11. Результат и приёмка
 

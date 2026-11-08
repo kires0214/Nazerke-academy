@@ -1,5 +1,7 @@
 # DEV implementation receipt — 2026-11-06
 
+Historical receipt. Owner's 2026-11-08 Mux replacement supersedes the Cloudflare video setup and adapter evidence below; those original results are not live Mux acceptance. Current Mux configuration, migration and acceptance gates are documented in [MUX_SETUP.md](MUX_SETUP.md). Other baseline/Neon evidence is preserved unchanged.
+
 Owner: CODEX_PRIMARY. Controlling issue: #1. Branch: `codex/juicy-mvp`.
 
 Baseline: `4e781ac26db6dbe7542e5e0aac2e03fb1b268791`, verified before source changes.

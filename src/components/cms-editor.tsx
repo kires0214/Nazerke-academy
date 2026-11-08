@@ -1,9 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useEffect,useRef,useState } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Content,ContentInput } from '@/lib/content';
 import { assetNames,kinds } from '@/lib/catalog';
 import { apiCall,messageFor } from './actions';
+import {putDirectVideo} from '@/lib/video-client';
 
 const labels:Record<string,string>={section:'Раздел',course:'Курс',module:'Модуль',lesson:'Урок',attachment:'Насадка',recipe:'Рецепт',collection:'Подборка',post:'Статья / новость / FAQ',material:'Материал',event:'Мастер-класс'};
 export function CmsEditor({node,nodes,media,links=[],mediaIds=[]}:{node?:Content;nodes:Content[];media:{id:string;kind:string;state:string}[];links?:string[];mediaIds?:string[]}) {
@@ -36,12 +37,18 @@ export function CmsEditor({node,nodes,media,links=[],mediaIds=[]}:{node?:Content
 }
 export function MediaUpload() {
   const [status,setStatus]=useState(''),[pending,setPending]=useState(false);const router=useRouter();
-  return <form className="form-stack" onSubmit={async e=>{e.preventDefault();const file=new FormData(e.currentTarget).get('file');if(!(file instanceof File))return;setPending(true);try {
+  const uploadRef=useRef<AbortController|null>(null);
+  useEffect(()=>()=>{uploadRef.current?.abort();},[]);
+  return <form className="form-stack" onSubmit={async e=>{e.preventDefault();const file=new FormData(e.currentTarget).get('file');if(!(file instanceof File)||pending)return;
+    const controller=new AbortController();uploadRef.current=controller;setPending(true);try {
     if(file.type.startsWith('video/')) {
       if(file.size>200*1024*1024)throw new Error('Для пилота выберите видео до 200 МБ.');
-      const media=await apiCall('/api/studio/media/stream',{});const data=new FormData();data.append('file',file);const response=await fetch(media.uploadUrl,{method:'POST',body:data});if(!response.ok)throw new Error('Не удалось загрузить видео.');setStatus('Видео загружено и обрабатывается. Нажмите «Обновить» в списке.');
+      const media=await apiCall('/api/studio/media/mux',{},'POST',controller.signal);
+      try{await putDirectVideo(media.uploadUrl,file,AbortSignal.any([controller.signal,AbortSignal.timeout(15*60000)]));}
+      catch{throw new Error('Не удалось загрузить видео. Повторите загрузку.');}
+      setStatus('Видео загружено и обрабатывается. Обновите статус через несколько секунд.');
     } else {
-      const response=await fetch('/api/studio/media/upload',{method:'POST',headers:{'Content-Type':file.type},body:file});const result=await response.json();if(!response.ok)throw new Error(messageFor(result.error));setStatus('Медиа загружено. Теперь его можно добавить в материал.');
+      const response=await fetch('/api/studio/media/upload',{method:'POST',headers:{'Content-Type':file.type},body:file,signal:controller.signal});const result=await response.json();if(!response.ok)throw new Error(messageFor(result.error));setStatus('Медиа загружено. Теперь его можно добавить в материал.');
     }router.refresh();
-  }catch(error){setStatus((error as Error).message);}finally{setPending(false);}}}><label>Изображение / PDF до 4 МБ, видео до 200 МБ<input type="file" name="file" accept="image/jpeg,image/png,image/webp,application/pdf,video/*" required/></label><button className="btn btn-dark" disabled={pending}>{pending?'Загружаем…':'Загрузить'}</button><p role="status">{status}</p></form>;
+  }catch(error){if(!controller.signal.aborted)setStatus((error as Error).message);}finally{if(!controller.signal.aborted)setPending(false);if(uploadRef.current===controller)uploadRef.current=null;}}}><label>Изображение / PDF до 4 МБ, видео до 200 МБ<input type="file" name="file" accept="image/jpeg,image/png,image/webp,application/pdf,video/*" required/></label><button className="btn btn-dark" disabled={pending}>{pending?'Загружаем…':'Загрузить'}</button><p role="status">{status}</p></form>;
 }

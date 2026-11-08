@@ -1,7 +1,7 @@
 name: DEV validation
 on:
   pull_request:
-    branches: [main]
+    branches: [main, codex/juicy-mvp]
 permissions:
   contents: read
 concurrency:

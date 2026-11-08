@@ -1,9 +1,9 @@
 import { PGlite } from '@electric-sql/pglite';
-import { readFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../src/lib/db';
 import { createLogin,principal,hash,type Principal,type Tokens } from '../src/lib/security';
 import { seedDev } from '../scripts/seed';
+import { migrate } from '../scripts/migrate';
 
 export function adapter(engine:Pick<PGlite,'query'|'exec'>):Db {
   return {async query<T extends Record<string,unknown>>(sql:string,params?:unknown[]) {
@@ -13,7 +13,7 @@ export function adapter(engine:Pick<PGlite,'query'|'exec'>):Db {
 }
 export async function fixture() {
   const engine=new PGlite();
-  await engine.exec(await readFile(new URL('../migrations/001_pilot.sql',import.meta.url),'utf8'));
+  await engine.transaction(tx=>migrate(adapter(tx as unknown as PGlite)));
   const run=<T>(work:(db:Db)=>Promise<T>)=>engine.transaction(tx=>work(adapter(tx as unknown as PGlite)));
   let number=900000000000000;
   async function account(role='student',status='approved',scopes=['academy'],permissions:string[]=[]) {

@@ -61,7 +61,7 @@ test('recipe search, language/category/duration filters and XSS remain text',asy
 test('migrations are idempotent and checksum locked on a fresh PostgreSQL engine',async()=>{
   const { PGlite }=await import('@electric-sql/pglite'),{adapter}=await import('./helpers');const engine=new PGlite();
   try {await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));
-    assert.equal((await engine.query('SELECT * FROM schema_migrations')).rows.length,1);
+    assert.equal((await engine.query('SELECT * FROM schema_migrations')).rows.length,2);
     await engine.query("UPDATE schema_migrations SET sha256='changed'");await assert.rejects(engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine))),/MIGRATION_CHECKSUM_CHANGED/);
   }finally{await engine.close();}
 });

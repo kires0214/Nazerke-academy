@@ -4,6 +4,7 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {PublicShell,AcademyShell,StudioShell} from '../src/components/shells';
 import {RichText} from '../src/components/cards';
+import {VideoPlayer} from '../src/components/video-player';
 import {syntheticPrincipal} from './helpers';
 import sharp from 'sharp';
 import {readFile} from 'node:fs/promises';
@@ -18,6 +19,10 @@ test('public, academy and Studio shells each have one header; student has one pr
 });
 test('rich content escapes stored XSS rather than executing HTML',()=>{
   const html=renderToStaticMarkup(createElement(RichText,{text:'<script>alert(1)</script>\n\n## A heading'}));assert.equal(html.includes('<script>'),false);assert.match(html,/&lt;script&gt;/);assert.match(html,/<h2>A heading/);
+});
+test('private player renders no playback URL/token or iframe before server authorization',()=>{
+  const html=renderToStaticMarkup(createElement(VideoPlayer,{mediaId:'00000000-0000-4000-8000-000000000001'}));
+  assert.match(html,/<video/);assert.equal(html.includes('<iframe'),false);assert.equal(html.includes('stream.mux.com'),false);assert.equal(html.includes('token='),false);assert.equal(html.includes('MUX_'),false);assert.match(html,/Смотреть видео/);
 });
 test('25 original assets decode; four portraits are independent full images',async()=>{
   const manifest=JSON.parse(await readFile(new URL('../legacy-demo/asset-manifest.json',import.meta.url),'utf8'));
