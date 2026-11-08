@@ -1,7 +1,8 @@
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
 import { ContentCards,PageHead,Photo,RichText,contentHref } from '@/components/cards';
-import { ActionButton,VideoPlayer,DownloadButton } from '@/components/actions';
+import { ActionButton,DownloadButton } from '@/components/actions';
+import {VideoPlayer} from '@/components/video-player';
 import { academyData,pageTokens } from '@/lib/pages';
 import { withDb } from '@/lib/db';
 import { principal } from '@/lib/security';

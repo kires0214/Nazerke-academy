@@ -15,7 +15,7 @@
 
 ## Архитектура
 
-Один Next.js проект (на этапе Codex migration), работающий на Vercel в двух окружениях DEV и PROD. PostgreSQL через Neon; приватное видео через Cloudflare Stream; Telegram login/бот/поддержка — через Vercel Functions. Исходники в GitHub. Отдельного TEST-окружения, Railway, VPS и лишних микросервисов не требуется.
+Один Next.js проект (на этапе Codex migration), работающий на Vercel в двух окружениях DEV и PROD. PostgreSQL через Neon; приватное видео через Mux; Telegram login/бот/поддержка — через Vercel Functions. Исходники в GitHub. Отдельного TEST-окружения, Railway, VPS и лишних микросервисов не требуется.
 
 ## Текущий код
 
@@ -29,7 +29,7 @@ legacy-demo содержит неизменённый архив JUICY v3.2. П�
 
 После привязки Vercel и проверки окружения: `npm run db:migrate`, `npm run db:seed` (строго APP_ENV=DEV), `npm run dev`. Seed содержит только синтетический текст и исходные публичные названия, не создаёт аккаунты, не загружает частные уроки и не создаёт событий.
 
-Подключение Neon / Telegram / Stream, точные DEV scopes и безопасные команды проверки описаны в [docs/DEV_SETUP.md](docs/DEV_SETUP.md). `npm run dev:check-env` проверяет имена и формат текущих переменных без сетевых запросов; `npm run dev:check-services` дополнительно выполняет только чтение у провайдеров. Код выхода 2 означает отсутствующий setup, а не успешную интеграцию. Значения секретов не выводятся.
+Подключение Neon / Telegram / Mux, точные DEV scopes и безопасные команды проверки описаны в [docs/DEV_SETUP.md](docs/DEV_SETUP.md). `npm run dev:check-env` проверяет имена и формат текущих переменных без сетевых запросов; `npm run dev:check-services` дополнительно выполняет только чтение у провайдеров. Код выхода 2 означает отсутствующий setup, а не успешную интеграцию. Значения секретов не выводятся.
 
 Первый Tech Admin: сначала выполнить настоящий проверенный вход Telegram; временно задать BOOTSTRAP_TECHADMIN_TELEGRAM_ID через секрет окружения CLI, затем `npm run db:bootstrap-admin`. Скрипт работает только пока Tech Admin отсутствует, требует существующего аккаунта, отзывает сессии и пишет аудит. Удалить временный ключ и войти снова. Веб-эндпоинта bootstrap нет.
 
@@ -38,15 +38,15 @@ legacy-demo содержит неизменённый архив JUICY v3.2. П�
 - src/app/(public), academy, admin — три отдельных интерфейса.
 - src/lib/security.ts — Telegram HMAC, сессии, браузер, RBAC; accounts.ts — подтверждение, роли, grants.
 - src/lib/content.ts — CMS, иерархия и канонические связи; PostgreSQL content — типизированные узлы course/module/lesson/recipe и др., content_links — связи без копирования рецептов.
-- src/lib/api.ts — валидированные API; providers.ts / support.ts — Stream, Telegram, outbox и поддержка.
+- src/lib/api.ts — валидированные API; mux.ts / mux-video.ts — приватное видео; providers.ts / support.ts — Telegram, outbox и поддержка.
 - migrations/ — контрольные суммы миграций, ограничения, индексы, append-only аудит.
 - tests/ — PostgreSQL-совместимый PGlite и mock внешних HTTP-провайдеров. Движок закрывается после каждого сценария; отдельного сервера нет.
 
-Изображения/PDF CMS до 4 МБ хранятся в PostgreSQL и выдаются после проверки доступа. PDF-ссылки имеют TTL 120 секунд и привязаны к текущей сессии. Видео загружается напрямую в Cloudflare Stream с requireSignedURLs; backend выдаёт viewer token на 120 секунд. Уже выданный bearer token действует до истечения TTL; прекращение сессии немедленно запрещает новые tokens. Поддержка сохраняется до отправки Telegram; outbox имеет повторные попытки и ручной повтор в Studio, доставка at-least-once.
+Изображения/PDF CMS до 4 МБ хранятся в PostgreSQL и выдаются после проверки доступа. PDF-ссылки имеют TTL 120 секунд и привязаны к текущей сессии. Видео загружается напрямую из браузера в Mux Basic 1080p, без DRM. Backend проверяет текущий допуск и выдаёт RS256 signed HLS; срок покрывает урок, а player обновляет доступ и сохраняет позицию. Подключение: [docs/MUX_SETUP.md](docs/MUX_SETUP.md). Уже выданный bearer token действует до истечения TTL; прекращение сессии немедленно запрещает новые tokens. Поддержка сохраняется до отправки Telegram; outbox имеет повторные попытки и ручной повтор в Studio, доставка at-least-once.
 
 ### Границы проверки
 
-Локальные проверки не подтверждают реальную настройку Telegram, Neon, Stream, independent-connection races, backup/restore или готовность обработки реальных персональных данных. PROD остаётся под release gates из docs/RELEASE.md. Детальные команды и ограничения фиксируются в docs/IMPLEMENTATION.md и docs/DEV_RECEIPT.md.
+Локальные проверки не подтверждают реальную настройку Telegram, Neon, Mux, independent-connection races, backup/restore или готовность обработки реальных персональных данных. PROD остаётся под release gates из docs/RELEASE.md. Детальные команды и ограничения фиксируются в docs/IMPLEMENTATION.md и docs/DEV_RECEIPT.md.
 
 ## Внимание: репозиторий PUBLIC
 

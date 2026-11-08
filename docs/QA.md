@@ -19,7 +19,7 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Approval | Pending/blocked users do not receive private content/signed media |
 | Device | 2 parallel first logins allow 1; second browser denied; admin reset audited |
 | Logout | Revoked token denied immediately for API and private media |
-| Video | Correct Stream signed viewing for authorized user; unauthorized and expired denied |
+| Video | Correct Mux signed viewing for authorized user; unauthorized and expired denied |
 | Documents | Protected file signed only for appropriate user |
 | Support | Student message saved and admin reply delivered; Telegram retry idempotent |
 | Events | Actual city/time/capacity, waitlist transaction safe, no invented schedule |
@@ -27,4 +27,4 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | OPS | DEV build/tests, PROD smoke and rollback route; no PII in DEV |
 | Pilot | Privacy qualification, backup/recovery, basic performance, 1 real vertical flow |
 
-If external Telegram/Cloudflare credentials missing, mark integration BLOCKED, not PASS, and continue unaffected features. No third TEST environment.
+If external Telegram/Mux credentials missing, mark integration BLOCKED, not PASS, and continue unaffected features. No third TEST environment.

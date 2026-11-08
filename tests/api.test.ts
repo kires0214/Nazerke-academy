@@ -7,7 +7,7 @@ import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
 import { contentSchema,saveContent } from '../src/lib/content';
 import { deliverClaimed,dispatchOutbox,processTelegramUpdate } from '../src/lib/support';
-import { privatePlayback,telegramSend } from '../src/lib/providers';
+import { telegramSend } from '../src/lib/providers';
 import { downloadSignature,type Tokens } from '../src/lib/security';
 
 process.env.APP_BASE_URL='https://dev.juicy.invalid';process.env.APP_ENV='DEV';
@@ -71,18 +71,6 @@ test('outbox retries provider failures and preserves sent state without duplicat
     assert.equal((await f.engine.query<{state:string}>('SELECT state FROM notification_outbox')).rows[0].state,'sent');
     assert.equal((await f.run(dispatchOutbox)).length,0);
   }finally{await f.close();}
-});
-test('Stream adapter requests private 120-second tokens; rejects public, unready and unsafe-expiry provider results',async()=>{
-  const saved={account:process.env.CLOUDFLARE_ACCOUNT_ID,secret:process.env.CLOUDFLARE_STREAM_API_TOKEN};process.env.CLOUDFLARE_ACCOUNT_ID='a'.repeat(32);process.env.CLOUDFLARE_STREAM_API_TOKEN='synthetic_DEV_only';
-  const id='b'.repeat(32);let mode='ok',requests=0;
-  const mock:typeof fetch=async(url,init)=>{requests++;const isToken=String(url).endsWith('/token');let result;
-    if(isToken) {const payload=JSON.parse(String(init?.body));assert.equal(payload.downloadable,false);assert.ok(payload.exp<=Date.now()/1000+120);result={token:`e30.${Buffer.from(JSON.stringify({sub:id,exp:mode==='long'?payload.exp+3600:payload.exp})).toString('base64url')}.synthetic_signature`};}
-    else result={requireSignedURLs:mode!=='public',readyToStream:mode!=='processing'};
-    return Response.json({success:true,result});};
-  try {const result=await privatePlayback(id,mock);assert.ok(result.url.startsWith('https://iframe.cloudflarestream.com/'));assert.equal(requests,2);
-    for(const next of ['public','processing','long']) {mode=next;await assert.rejects(privatePlayback(id,mock),/PRIVATE_VIDEO_NOT_READY|UNSAFE_STREAM_EXPIRY/);}
-    await assert.rejects(privatePlayback('invalid',mock),/INVALID_STREAM_ID/);
-  }finally{if(saved.account)process.env.CLOUDFLARE_ACCOUNT_ID=saved.account;else delete process.env.CLOUDFLARE_ACCOUNT_ID;if(saved.secret)process.env.CLOUDFLARE_STREAM_API_TOKEN=saved.secret;else delete process.env.CLOUDFLARE_STREAM_API_TOKEN;}
 });
 test('private files and video endpoints deny pending users, unentitled staff, hidden content and missing authentication',async()=>{
   const f=await fixture();process.env.TELEGRAM_BOT_TOKEN='999999999:synthetic_DEV_signing_only';try {const student=await f.account(),pending=await f.account('student','pending',[]),staff=await f.account('admin','approved',[],['content.read']);

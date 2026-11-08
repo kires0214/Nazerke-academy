@@ -6,7 +6,7 @@ P1 First real user: verified Telegram login, pending→approved, secure cookie s
 
 P2 Real content: CMS sections/courses/modules/lessons/recipes/attachments/collections; media catalog, publish/preview/hide; cross-links one recipe per ID. Populate at least one real Kenwood lesson and recipe. Search/filter, favorites, progress.
 
-P3 Private video and support: Cloudflare Stream protected playback and upload, Telegram webhook and notifications, web chat with staff response, events/waitlist. No extra server.
+P3 Private video and support: Mux protected playback and upload, Telegram webhook and notifications, web chat with staff response, events/waitlist. No extra server.
 
 P4 Close pilot: DEV scenario matrix, mobile QA and security tests, controlled PROD smoke/rollback; approve small users, fix issues and ship.
 

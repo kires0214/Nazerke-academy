@@ -9,7 +9,7 @@ const config: NextConfig = {
       { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       { key: 'X-Frame-Options', value: 'DENY' },
       { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
-      { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://oauth.telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https://oauth.telegram.org https://*.cloudflarestream.com; connect-src 'self' https://*.cloudflarestream.com https://upload.videodelivery.net; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'" },
+      { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self' 'unsafe-inline' https://telegram.org https://oauth.telegram.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-src https://oauth.telegram.org; connect-src 'self' https://*.mux.com https://storage.googleapis.com; media-src 'self' blob: https://*.mux.com; worker-src 'self' blob:; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'" },
     ] }];
   },
 };
