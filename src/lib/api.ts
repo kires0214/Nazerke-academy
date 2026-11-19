@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { withDb, type Db } from './db';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
-import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
+import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, isStudioRole, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
 import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
 import { updateAccount } from './accounts';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
@@ -42,7 +42,7 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       const ip=process.env.VERCEL ? req.headers.get('x-real-ip')??'unknown' : 'local';
       await run(db=>rateLimit(db,'login-ip:'+hash(ip),20,300));
       const result=await run(db=>redeemTelegramCode(db,code,requestTokens(req).device));
-      const response=apiResponse({ok:true});
+      const response=apiResponse({ok:true, destination:isStudioRole(result.role)?'/admin':'/academy'});
       cookiesForLogin(response,result.sessionToken,result.deviceToken); return response;
     }
     if(key!=='content')check(requestTokens(req).session&&requestTokens(req).device,401,'LOGIN_REQUIRED');

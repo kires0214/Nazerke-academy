@@ -30,6 +30,7 @@ export async function rateLimit(db: Db, key: string, limit: number, seconds = 60
   check(rows[0].hits <= limit,429,'RATE_LIMITED');
 }
 export function hasGrant(p: Principal, grant: Grant) { return p.status === 'approved' && (p.role === 'techadmin' || p.role === 'admin' && p.grants.includes(grant)); }
+export function isStudioRole(role: Role) { return role === 'admin' || role === 'techadmin'; }
 export function requireGrant(p: Principal, grant: Grant) { check(hasGrant(p,grant),403,'PERMISSION_DENIED'); }
 export function requireApproved(p: Principal) { check(p.status === 'approved',403,'APPROVAL_REQUIRED'); }
 export function canLearn(p: Principal, audience: string) {
@@ -55,7 +56,7 @@ export async function principal(db: Db, tokens: Tokens, allowPending = false): P
 
 // Caller must use a database transaction; row lock serializes first-device races.
 export async function createLogin(db: Db, telegramId: string, browserToken?: string) {
-  const { rows: users } = await db.query<{id:string;status:string}>('SELECT id,status FROM users WHERE telegram_id=$1 FOR UPDATE',[telegramId]);
+  const { rows: users } = await db.query<{id:string;status:string;role:Role}>('SELECT id,status,role FROM users WHERE telegram_id=$1 FOR UPDATE',[telegramId]);
   const user = users[0];
   check(user?.status === 'approved',403,'INVITE_REQUIRED');
   const { rows: devices } = await db.query<{id:string;binding_hash:string}>('SELECT id,binding_hash FROM devices WHERE user_id=$1 AND revoked_at IS NULL',[user.id]);
@@ -71,7 +72,7 @@ export async function createLogin(db: Db, telegramId: string, browserToken?: str
   const sessionToken = token();
   await db.query('INSERT INTO sessions(user_id,device_id,token_hash,expires_at) VALUES($1,$2,$3,now()+interval \'7 days\')',[user.id,device.id,hash(sessionToken)]);
   await audit(db,user.id,'session.replace',user.id);
-  return { sessionToken, deviceToken };
+  return { sessionToken, deviceToken, role: user.role };
 }
 
 export async function resetDevice(db: Db, actor: Principal, userId: string) {

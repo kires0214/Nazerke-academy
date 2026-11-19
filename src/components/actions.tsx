@@ -14,6 +14,13 @@ export function messageFor(code:string) {
     BROWSER_REGISTERED_CONTACT_SUPPORT:'Аккаунт привязан к другому браузеру. Обратитесь в поддержку.',
     TELEGRAM_CODE_INVALID:'Код истёк или уже использован. Запросите новый код в Telegram.',
     INVITE_REQUIRED:'Для входа нужно приглашение команды JUICY.',
+    PUBLISH_PARENT_FIRST:'Сначала опубликуйте родительский курс или модуль.',
+    PARENT_AUDIENCE_MISMATCH:'Выберите тот же доступ, что у родительского курса или модуля.',
+    RECIPE_DETAILS_REQUIRED:'Для публикации рецепта заполните время, порции, ингредиенты и шаги.',
+    EVENT_DETAILS_REQUIRED:'Для публикации встречи укажите город, дату и количество мест.',
+    PRIVATE_CONTENT_KIND:'Этот материал можно открыть только Академии или амбассадорам.',
+    PUBLIC_VIDEO_FORBIDDEN:'Удалите видео из материала или измените его доступ на закрытый.',
+    ALREADY_EXISTS:'Такой адрес уже используется. Укажите другой адрес.',
   } as Record<string,string>)[code]??'Не удалось выполнить действие. Попробуйте позже или обратитесь в поддержку.';
 }
 export async function apiCall(url:string,payload:unknown,method='POST',signal?:AbortSignal) {
@@ -35,8 +42,8 @@ export function TelegramCodeForm() {
     setStatus('');
     setPending(true);
     try {
-      await apiCall('/api/auth/telegram',{code});
-      window.location.assign('/academy');
+      const {destination}=await apiCall('/api/auth/telegram',{code});
+      window.location.assign(destination==='/admin'?'/admin':'/academy');
     }catch(error){
       setStatus((error as Error).message);
       setPending(false);

@@ -3,7 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 import { withDb } from './db';
 import { cookieNames } from './http';
-import { principal } from './security';
+import { isStudioRole, principal } from './security';
 import { listContent } from './content';
 import { AppError } from './errors';
 
@@ -29,6 +29,11 @@ export const academyData=cache(async()=>{
   }
 });
 export const studioData=cache(async()=>{
-  const tokens=await pageTokens();if(!tokens.session||!tokens.device) redirect('/login');
-  return withDb(async db=>{const user=await principal(db,tokens);if(!['admin','techadmin'].includes(user.role)) redirect('/academy');return {user};});
+  const user=await pageUser().catch(error=>{
+    if(error instanceof AppError&&error.status===403) redirect('/login');
+    throw error;
+  });
+  if(user.status!=='approved') redirect('/access');
+  if(!isStudioRole(user.role)) redirect('/academy');
+  return {user};
 });

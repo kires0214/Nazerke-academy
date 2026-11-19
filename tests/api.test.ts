@@ -41,6 +41,26 @@ test('direct CMS endpoint enforces granular grants and forbids spoofed role fiel
     assert.equal((await handleApi(request('studio/accounts/'+a.id,'POST',{action:'staff',role:'admin',grants:['content.publish']},a.tokens),['studio','accounts',a.id],f.run)).status,403);
   }finally{await f.close();}
 });
+test('Tech Admin can create a draft and publish or withdraw it using the Studio HTTP routes',async()=>{
+  const f=await fixture();
+  try {
+    const tech=await f.account('techadmin'),student=await f.account();
+    const list=async()=>await (await handleApi(request('content','GET',undefined,student.tokens),['content'],f.run)).json() as {id:string}[];
+    const recipe={kind:'recipe',slug:'synthetic-publishing',title:'Synthetic draft',status:'draft'};
+    const initial=await handleApi(request('studio/content','POST',recipe,tech.tokens),['studio','content'],f.run);
+    assert.equal(initial.status,200);
+    const {id}=await initial.json();
+    assert.ok(!(await list()).some(node=>node.id===id));
+    const full={...recipe,title:'Synthetic recipe',data:{duration:15,portions:2,ingredients:['Synthetic ingredient'],steps:['Synthetic step']}};
+    const path=['studio','content',id];
+    const publish=await handleApi(request(path.join('/'),'PATCH',{...full,status:'published',version:1},tech.tokens),path,f.run);
+    assert.equal(publish.status,200);
+    assert.ok((await list()).some(node=>node.id===id));
+    const hide=await handleApi(request(path.join('/'),'PATCH',{...full,status:'hidden',version:2},tech.tokens),path,f.run);
+    assert.equal(hide.status,200);
+    assert.ok(!(await list()).some(node=>node.id===id));
+  }finally{await f.close();}
+});
 test('Telegram webhook validates secret, deduplicates updates and records support roundtrip',async()=>{
   const f=await fixture();process.env.TELEGRAM_WEBHOOK_SECRET='synthetic_DEV_webhook_secret_32_characters';process.env.TELEGRAM_SUPPORT_CHAT_ID='-900000000000001';
   try {const a=await f.account(),staff=await f.account('admin','approved',[],['support.read','support.respond']);

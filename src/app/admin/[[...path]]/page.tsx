@@ -6,29 +6,59 @@ import { ActionButton,SupportForm } from '@/components/actions';
 import { RichText } from '@/components/cards';
 import { withDb } from '@/lib/db';
 import { pageTokens,studioData } from '@/lib/pages';
-import { hasGrant,principal,requireGrant } from '@/lib/security';
-import { listContent } from '@/lib/content';
+import { hasGrant,isStudioRole,principal,requireGrant } from '@/lib/security';
+import { canEditContent,kinds,listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
 import { pendingRegistrationRequests } from '@/lib/telegram-access';
+const contentSections=[
+  {slug:'',label:'Все материалы',kinds:[]},
+  {slug:'courses',label:'Курсы и уроки',kinds:['course','module','lesson']},
+  {slug:'recipes',label:'Рецепты и подборки',kinds:['recipe','attachment','collection']},
+  {slug:'sections',label:'Разделы и файлы',kinds:['section','material']},
+  {slug:'announcements',label:'Статьи и анонсы',kinds:['post']},
+  {slug:'events',label:'Мастер-классы',kinds:['event']},
+];
+const contentStatuses={draft:'Черновик',published:'Опубликовано',hidden:'Снято с публикации',archived:'В архиве'};
 export default async function Page({params}:{params:Promise<{path?:string[]}>}) {
   await studioData();
   const path=(await params).path??[],tokens=await pageTokens();
   return withDb(async db=>{
-    const user=await principal(db,tokens);check(['admin','techadmin'].includes(user.role),403,'STAFF_REQUIRED');
-    if(!path.length) {
+    const user=await principal(db,tokens);check(isStudioRole(user.role),403,'STAFF_REQUIRED');
+    const contentSection=path.length<=1?contentSections.find(section=>section.slug===(path[0]??'')):undefined;
+    if(contentSection) {
       if(!hasGrant(user,'content.read')) return <><h1>JUICY Studio</h1><p>Откройте доступный раздел в меню.</p></>;
       const nodes=await listContent(db,user,true);
-      return <><div className="section-heading"><h1>Контент</h1>{hasGrant(user,'content.edit')?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div><div className="course-steps">{nodes.map(n=><Link className="step" key={n.id} href={'/admin/edit/'+n.id}><div className="step-body"><strong>{n.title}</strong><small>{n.kind} · {n.language} · {n.status} · порядок {n.sort_order}</small></div>→</Link>)}</div></>;
+      const displayed=contentSection.kinds.length?nodes.filter(node=>contentSection.kinds.includes(node.kind)):nodes;
+      return <>
+        <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>{hasGrant(user,'content.edit')?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
+        <nav className="studio-content-nav" aria-label="Виды материалов">
+          {contentSections.map(section=><Link key={section.slug} href={section.slug?'/admin/'+section.slug:'/admin'} aria-current={section===contentSection?'page':undefined}>{section.label}</Link>)}
+        </nav>
+        {displayed.length?<div className="course-steps">{displayed.map(node=>{
+          const editable=canEditContent(user,node.kind,node.status);
+          return <Link className="step" key={node.id} href={`/admin/${editable?'edit':'preview'}/${node.id}`}>
+            <div className="step-body"><strong>{node.title}</strong><small>{node.language} · {contentStatuses[node.status]} · порядок {node.sort_order}</small></div>
+            <span className="small-link">{editable?'Редактировать':'Открыть'}</span>
+          </Link>;
+        })}</div>:<p className="empty">В этом разделе пока нет материалов.</p>}
+      </>;
     }
     if(['new','edit','preview'].includes(path[0])) {
       requireGrant(user,'content.read');if(path[0]!=='preview')requireGrant(user,'content.edit');
       const nodes=await listContent(db,user,true),node=nodes.find(n=>n.id===path[1]);if(path[0]!=='new'&&!node)notFound();
-      if(path[0]==='preview') return <><p className="notes">Предпросмотр Studio · {node!.status} · {node!.audience}</p><h1>{node!.title}</h1><p>{node!.description}</p><RichText text={node!.data.body}/><Link href={'/admin/edit/'+node!.id}>Вернуться к редактированию →</Link></>;
+      const editable=node?canEditContent(user,node.kind,node.status):hasGrant(user,'content.edit');
+      if(path[0]==='preview') return <><p className="notes">Предпросмотр Studio · {contentStatuses[node!.status]}</p><h1>{node!.title}</h1><p>{node!.description}</p><RichText text={node!.data.body}/>
+        <Link href={editable?'/admin/edit/'+node!.id:'/admin'}>{editable?'Вернуться к редактированию →':'Все материалы →'}</Link></>;
+      if(!editable)return <><h1>Редактирование недоступно</h1><p>Для этого материала нужны дополнительные права.</p><Link href={'/admin/preview/'+node!.id}>Открыть предпросмотр</Link></>;
       const media=(await db.query<{id:string;kind:string;state:string}>('SELECT id,kind,state FROM media ORDER BY created_at DESC LIMIT 200')).rows;
       const links=node?(await db.query<{target_id:string}>('SELECT target_id FROM content_links WHERE source_id=$1',[node.id])).rows.map(l=>l.target_id):[];
       const mediaIds=node?(await db.query<{media_id:string}>('SELECT media_id FROM content_media WHERE content_id=$1',[node.id])).rows.map(l=>l.media_id):[];
-      return <><h1>{node?'Редактировать':'Новый материал'}</h1>{node?<p><Link className="small-link" href={'/admin/preview/'+node.id}>Предпросмотр →</Link></p>:null}<CmsEditor node={node} nodes={nodes} media={media} links={links} mediaIds={mediaIds}/></>;
+      return <><p><Link className="small-link" href="/admin">← Все материалы</Link></p><h1>{node?node.title:'Новый материал'}</h1>
+        {node?<p><Link className="btn btn-outline" href={'/admin/preview/'+node.id}>Предпросмотр</Link></p>:null}
+        <CmsEditor key={node?.id??'new'} node={node} nodes={nodes} media={media} links={links} mediaIds={mediaIds}
+          allowedKinds={kinds.filter(kind=>canEditContent(user,kind))} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}/>
+      </>;
     }
     if(path[0]==='users') {
       requireGrant(user,'students.read');

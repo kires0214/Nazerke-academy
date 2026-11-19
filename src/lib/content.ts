@@ -26,7 +26,7 @@ export const contentSchema = z.object({
 }).strict();
 export type ContentInput = z.infer<typeof contentSchema>;
 export type Content = {
-  id:string;kind:string;slug:string;title:string;description:string;language:string;audience:string;status:string;
+  id:string;kind:string;slug:string;title:string;description:string;language:string;audience:string;status:ContentInput['status'];
   parent_id:string|null;sort_order:number;cover:string|null;data:z.infer<typeof bodySchema>;version:number;published_at:string|null;
 };
 export function visible(node: Content, all: Content[], user?: Principal): boolean {
@@ -47,6 +47,11 @@ export async function getContent(db: Db, idOrSlug: string, user?: Principal) {
   return node;
 }
 const kindGrants: Record<string,Grant> = {section:'sections.manage',course:'courses.manage',module:'courses.manage',lesson:'courses.manage',recipe:'recipes.manage',event:'events.manage',post:'announcements.manage'};
+export function canEditContent(actor:Principal,kind:string,status?:Content['status']) {
+  const grant=kindGrants[kind];
+  return hasGrant(actor,'content.edit') && (!grant || hasGrant(actor,grant)) &&
+    (status!=='published' || hasGrant(actor,'content.publish'));
+}
 export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: string) {
   const input = contentSchema.parse(raw);
   requireGrant(actor,'content.edit');

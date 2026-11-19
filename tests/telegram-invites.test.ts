@@ -92,6 +92,7 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await call('auth/telegram', { code }, { origin: 'https://elsewhere.invalid' })).status, 403);
     const result = await call('auth/telegram', { code });
     assert.equal(result.status, 200);
+    assert.equal((await result.json()).destination, '/academy');
     const tokens = {
       session: result.cookies.get(names.session)?.value,
       device: result.cookies.get(names.device)?.value,
@@ -106,6 +107,15 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await call('auth/telegram', { code: replacement })).status, 409);
     assert.equal((await call('auth/telegram', { code: replacement }, { device: tokens.device })).status, 200);
     await assert.rejects(f.run(db => principal(db, tokens)), /SESSION_INVALID/);
+
+    const staffChat=Number(tech.telegramId);
+    const staffUpdate={
+      update_id:10,message:{from:{id:staffChat},chat:{id:staffChat,type:'private'},text:'/login'},
+    };
+    assert.equal((await call('telegram/webhook',staffUpdate,{secret})).status,200);
+    const staffLogin=await call('auth/telegram',{code:codeFromBot()},{device:tech.tokens.device});
+    assert.equal(staffLogin.status,200);
+    assert.equal((await staffLogin.json()).destination,'/admin');
   } finally {
     globalThis.fetch = originalFetch;
     await f.close();

@@ -16,6 +16,10 @@ test('public, academy and Studio shells each have one header; student has one pr
   assert.equal((academy.match(/aria-label="Мой профиль"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
   assert.equal(academy.includes('by Nazerke'),false);assert.match(academy,/Мобильная навигация/);
   assert.equal(publicHtml.includes('JUICY Studio'),false);
+  for(const role of ['admin','techadmin'] as const){
+    const staffAcademy=renderToStaticMarkup(createElement(AcademyShell,{user:syntheticPrincipal(role),children:'Academy'}));
+    assert.match(staffAcademy,/<a[^>]+href="\/admin"[^>]*>Studio<\/a>/);
+  }
 });
 test('rich content escapes stored XSS rather than executing HTML',()=>{
   const html=renderToStaticMarkup(createElement(RichText,{text:'<script>alert(1)</script>\n\n## A heading'}));assert.equal(html.includes('<script>'),false);assert.match(html,/&lt;script&gt;/);assert.match(html,/<h2>A heading/);
