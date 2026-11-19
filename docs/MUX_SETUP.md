@@ -39,7 +39,7 @@ An approved staff member with `media.upload` calls `POST /api/studio/media/mux`.
 }
 ```
 
-The browser uploads the raw file with `PUT` to the one-time Mux-provided Google Cloud Storage URL. It sends no JUICY cookies or Mux API credentials. Video bytes never pass through a Vercel Function. The pilot UI retains its 200 MB file limit; videos up to two hours are accepted. Leaving the upload page aborts the browser request. The unused direct-upload URL expires after 15 minutes; interrupted uploads can be retried with a new upload.
+The browser uploads the raw file with `PUT` to the one-time URL from Mux. The server and browser accept only the regional `direct-uploads-*.mux.com` endpoints and the legacy Google Cloud Storage endpoint over HTTPS. Browser uploads omit JUICY cookies and Mux API credentials. Video bytes never pass through a Vercel Function. The pilot UI limit is 200 MB, and videos up to two hours are accepted. Leaving the upload page aborts the browser request. Unused tickets expire after 15 minutes. The server attempts to cancel tickets immediately when Mux returns an unsupported destination.
 
 In the same Mux DEV environment, register **`POST <DEV_ORIGIN>/api/mux/webhook`** and subscribe to:
 

@@ -7,10 +7,11 @@ import {configureMux,syntheticMux,syntheticPublicKey} from './mux-fixtures';
 import {handleApi} from '../src/lib/api';
 import {cookieNames} from '../src/lib/http';
 import {createLogin,type Tokens} from '../src/lib/security';
-import {privateAsset,signMuxPlayback,validateUploadUrl,verifyMuxWebhook} from '../src/lib/mux';
+import {createMuxUpload,privateAsset,signMuxPlayback,validateUploadUrl,verifyMuxWebhook} from '../src/lib/mux';
 import {leaseNeedsRenewal,putDirectVideo,refreshMuxRequest,replaceNativeSource,validateLease} from '../src/lib/video-client';
 
 const base='https://dev.juicy.invalid';process.env.APP_ENV='DEV';process.env.APP_BASE_URL=base;
+const uploadOrigin='https://direct-uploads-oci-us-phoenix-1-vop1.mux.com';
 function request(path:string,method='GET',tokens?:Tokens,body?:unknown){
   const names=cookieNames();return new NextRequest(base+'/api/'+path,{method,headers:{Origin:base,'Content-Type':'application/json',...(tokens?{Cookie:names.session+'='+tokens.session+'; '+names.device+'='+tokens.device}:{})},...(body===undefined?{}:{body:JSON.stringify(body)})});
 }
@@ -20,14 +21,14 @@ function fakeMux(){
   const asset=()=>({id:state.assetId,upload_id:state.uploadId,passthrough:state.mediaId,status:state.status,duration:1800,video_quality:state.quality,resolution_tier:state.resolution,max_resolution_tier:'1080p',playback_ids:[{id:state.playbackId,policy:state.policy}]});
   const fetcher:typeof fetch=async(url,init)=>{
     state.requests++;const target=String(url);
-    if(target.startsWith('https://storage.googleapis.com/')){assert.equal(init?.method,'PUT');assert.ok(init?.body instanceof Blob);assert.equal(init?.credentials,'omit');state.uploaded=true;return new Response(null,{status:200});}
+    if(target.startsWith(uploadOrigin+'/')){assert.equal(init?.method,'PUT');assert.ok(init?.body instanceof Blob);assert.equal(init?.credentials,'omit');state.uploaded=true;return new Response(null,{status:200});}
     assert.match(target,/^https:\/\/api\.mux\.com\/video\/v1\//);
     assert.ok(String((init?.headers as Record<string,string>)?.Authorization).startsWith('Basic '));
     if(target.endsWith('/uploads')&&init?.method==='POST'){
       const data=JSON.parse(String(init.body));assert.equal(data.cors_origin,base);assert.equal(data.timeout,900);
       assert.deepEqual(data.new_asset_settings.playback_policies,['signed']);assert.equal(data.new_asset_settings.video_quality,'basic');assert.equal(data.new_asset_settings.max_resolution_tier,'1080p');assert.equal(data.new_asset_settings.master_access,'none');
       assert.equal(data.new_asset_settings.advanced_playback_policies,undefined);state.mediaId=data.new_asset_settings.passthrough;
-      return Response.json({data:{id:state.uploadId,url:'https://storage.googleapis.com/synthetic-mux-upload?signature=synthetic'}});
+      return Response.json({data:{id:state.uploadId,url:uploadOrigin+'/synthetic-mux-upload?signature=synthetic'}});
     }
     if(target.endsWith('/uploads/'+state.uploadId))return Response.json({data:{id:state.uploadId,status:state.uploaded?'asset_created':'waiting',...(state.uploaded?{asset_id:state.assetId}:{})}});
     if(target.endsWith('/assets/'+state.assetId)){state.assetRequests++;return Response.json({data:asset()});}
@@ -35,6 +36,23 @@ function fakeMux(){
   };
   return {state,fetcher,asset};
 }
+test('rejected upload destinations are not exposed and their Mux tickets are cancelled',async()=>{
+  const restore=configureMux();
+  const calls:string[]=[];
+  const provider:typeof fetch=async(url,init)=>{
+    const path=new URL(String(url)).pathname;
+    calls.push(init?.method+' '+path);
+    if(init?.method==='POST') return Response.json({data:{id:'SyntheticRejectedUpload',url:uploadOrigin+'.attacker.invalid/upload'}});
+    return Response.json({data:{id:'SyntheticRejectedUpload',status:'cancelled'}});
+  };
+  try {
+    await assert.rejects(createMuxUpload(base,'synthetic-media',provider),/UNSAFE_UPLOAD_URL/);
+    assert.deepEqual(calls,['POST /video/v1/uploads','PUT /video/v1/uploads/SyntheticRejectedUpload/cancel']);
+    assert.equal(validateUploadUrl('https://storage.googleapis.com/synthetic'),'https://storage.googleapis.com/synthetic');
+    assert.throws(()=>validateUploadUrl(uploadOrigin+':1234/synthetic'),/UNSAFE_UPLOAD_URL/);
+    assert.throws(()=>validateUploadUrl('https://stream.mux.com/synthetic'),/UNSAFE_UPLOAD_URL/);
+  } finally {restore();}
+});
 test('browser upload → verified processing/ready callbacks → authorized RS256 private playback',async()=>{
   const restore=configureMux(),f=await fixture(),mux=fakeMux(),originalFetch=globalThis.fetch;globalThis.fetch=mux.fetcher;
   try{

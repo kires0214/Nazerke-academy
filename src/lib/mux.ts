@@ -1,6 +1,7 @@
 import { createHmac, createPrivateKey, sign, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import { check } from './errors';
+import { muxDirectUploadTarget } from './video-domains';
 
 export type Fetcher = typeof fetch;
 export const muxId = z.string().regex(/^[A-Za-z0-9_-]{1,255}$/);
@@ -14,7 +15,8 @@ export type MuxAsset = z.infer<typeof muxAssetSchema>;
 export async function muxApi<T=unknown>(path:string,method='GET',body?:unknown,fetcher:Fetcher=fetch):Promise<T> {
   const id=process.env.MUX_TOKEN_ID,secret=process.env.MUX_TOKEN_SECRET;
   check(id&&secret&&!/[\s:]/.test(id)&&!/[\s]/.test(secret),503,'MUX_NOT_CONFIGURED');
-  check(/^\/(assets|uploads|signing-keys)(\/[A-Za-z0-9_-]+)?(\?limit=1)?$/.test(path),500,'INVALID_MUX_PATH');
+  const cancelUpload=method==='PUT'&&/^\/uploads\/[A-Za-z0-9_-]+\/cancel$/.test(path);
+  check(cancelUpload||/^\/(assets|uploads|signing-keys)(\/[A-Za-z0-9_-]+)?(\?limit=1)?$/.test(path),500,'INVALID_MUX_PATH');
   const response=await fetcher('https://api.mux.com/video/v1'+path,{
     method,headers:{Authorization:'Basic '+Buffer.from(id+':'+secret).toString('base64'),'Content-Type':'application/json'},
     body:body===undefined?undefined:JSON.stringify(body),redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
@@ -24,8 +26,8 @@ export async function muxApi<T=unknown>(path:string,method='GET',body?:unknown,f
   return result.data as T;
 }
 export function validateUploadUrl(value:string) {
-  const url=new URL(value);
-  check(url.protocol==='https:'&&url.hostname==='storage.googleapis.com'&&!url.username&&!url.password,502,'UNSAFE_UPLOAD_URL');
+  const url=muxDirectUploadTarget(value);
+  check(url,502,'UNSAFE_UPLOAD_URL');
   return url.toString();
 }
 export async function createMuxUpload(origin:string,mediaId:string,fetcher:Fetcher=fetch) {
@@ -33,7 +35,14 @@ export async function createMuxUpload(origin:string,mediaId:string,fetcher:Fetch
     cors_origin:origin,timeout:900,
     new_asset_settings:{playback_policies:['signed'],video_quality:'basic',max_resolution_tier:'1080p',master_access:'none',passthrough:mediaId},
   },fetcher);
-  return {uploadId:muxId.parse(upload.id),uploadUrl:validateUploadUrl(upload.url)};
+  const uploadId=muxId.parse(upload.id);
+  try {
+    return {uploadId,uploadUrl:validateUploadUrl(upload.url)};
+  } catch(error) {
+    // Nothing can use this ticket. Cancel it now rather than waiting for its timeout.
+    await muxApi('/uploads/'+uploadId+'/cancel','PUT',undefined,fetcher).catch(()=>{});
+    throw error;
+  }
 }
 export async function getMuxAsset(id:string,fetcher:Fetcher=fetch) {
   return muxAssetSchema.parse(await muxApi('/assets/'+muxId.parse(id),'GET',undefined,fetcher));

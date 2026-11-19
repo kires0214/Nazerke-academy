@@ -1,8 +1,10 @@
+import { muxDirectUploadTarget } from './video-domains';
+
 // Browser-only helpers. Playback credentials stay in memory, never localStorage.
 export type PlaybackLease={url:string;issuedAt:number;expiresAt:number;durationSeconds:number};
 export async function putDirectVideo(url:string,file:Blob,signal:AbortSignal,fetcher:typeof fetch=fetch) {
-  const target=new URL(url);
-  if(target.origin!=='https://storage.googleapis.com'||target.username||target.password)throw new Error('UNSAFE_UPLOAD_URL');
+  const target=muxDirectUploadTarget(url);
+  if(!target)throw new Error('UNSAFE_UPLOAD_URL');
   const response=await fetcher(target,{method:'PUT',body:file,headers:{'Content-Type':file.type||'application/octet-stream'},credentials:'omit',signal});
   if(!response.ok)throw new Error('DIRECT_UPLOAD_FAILED');
 }
