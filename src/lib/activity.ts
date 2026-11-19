@@ -6,7 +6,7 @@ import { check } from './errors';
 import { audit, hasGrant, isStudioRole, requireGrant, type Principal } from './security';
 
 const academySections = new Set(['learn','kenwood','ambassadors','profile','more','club','recipes',
-  'search','attachments','events','materials','collections','news']);
+  'search','attachments','courses','events','materials','collections','news']);
 const studioSections = new Set(['courses','recipes','sections','announcements','events']);
 export const canManageMedia = (user: Principal) => hasGrant(user,'media.upload') || hasGrant(user,'media.delete');
 export const pageViewInput = z.object({path:z.string().max(150).regex(/^\/(academy|admin)(?:\/[a-z0-9-]+){0,2}$/)}).strict();

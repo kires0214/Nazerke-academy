@@ -11,6 +11,9 @@ const names:Record<string,string>={
   'content.draft':'Сохранил черновик','content.published':'Опубликовал материал','content.hidden':'Снял с публикации',
   'content.archived':'Архивировал материал','content.delete':'Удалил материал','media.upload':'Загрузил файл',
   'media.mux.create':'Начал загрузку видео','media.delete':'Удалил файл','lesson.complete':'Отметил урок завершённым',
+  'favorite.add':'Добавил в избранное','favorite.remove':'Убрал из избранного',
+  'event.registered':'Записался на встречу','event.waitlist':'Встал в лист ожидания',
+  'event.cancelled':'Отменил запись','event.city_interest':'Оставил заявку на встречу',
   'support.message':'Обратился в поддержку','support.reply':'Ответил на обращение','notifications.retry':'Повторил отправку уведомлений',
 };
 const times=new Intl.DateTimeFormat('ru-RU',{timeZone:'Asia/Qyzylorda',dateStyle:'short',timeStyle:'medium'});

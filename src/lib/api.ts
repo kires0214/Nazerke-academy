@@ -94,6 +94,7 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         await getContent(db,data.contentId,p);
         if(data.enabled) await db.query('INSERT INTO favorites(user_id,content_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[p.id,data.contentId]);
         else await db.query('DELETE FROM favorites WHERE user_id=$1 AND content_id=$2',[p.id,data.contentId]);
+        await audit(db,p.id,data.enabled?'favorite.add':'favorite.remove',data.contentId);
         return {ok:true};
       }
       if(key==='support' && method==='GET') return supportHistory(db,p);
@@ -170,12 +171,15 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         const registrations=(await db.query<{user_id:string;status:string}>('SELECT user_id,status FROM event_registrations WHERE event_id=$1',[event.id])).rows;
         const existing=registrations.find(r=>r.user_id===p.id);
         const status=data.cancel?'cancelled':existing?.status==='registered'?'registered':registrations.filter(r=>r.status==='registered').length<Number(event.data.capacity)?'registered':'waitlist';
-        await db.query('INSERT INTO event_registrations(user_id,event_id,status) VALUES($1,$2,$3) ON CONFLICT(user_id,event_id) DO UPDATE SET status=$3',[p.id,event.id,status]);return {status};
+        await db.query('INSERT INTO event_registrations(user_id,event_id,status) VALUES($1,$2,$3) ON CONFLICT(user_id,event_id) DO UPDATE SET status=$3',[p.id,event.id,status]);
+        if(existing?.status!==status)await audit(db,p.id,'event.'+status,event.id);
+        return {status};
       }
       if(key==='city-interests'&&method==='POST') {
         const data=z.object({city:z.string().trim().min(1).max(120),topic:z.string().trim().min(1).max(200)}).strict().parse(await jsonBody(req));
         await rateLimit(db,'city:'+p.id,5,86400);
-        await db.query('INSERT INTO city_interests(user_id,city,topic) VALUES($1,$2,$3)',[p.id,data.city,data.topic]);return {ok:true};
+        const {rows:[interest]}=await db.query<{id:string}>('INSERT INTO city_interests(user_id,city,topic) VALUES($1,$2,$3) RETURNING id',[p.id,data.city,data.topic]);
+        await audit(db,p.id,'event.city_interest',interest.id);return {ok:true};
       }
       throw new AppError(404,'ROUTE_NOT_FOUND');
     });
