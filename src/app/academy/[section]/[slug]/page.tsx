@@ -7,10 +7,10 @@ import { academyData,pageTokens } from '@/lib/pages';
 import { withDb } from '@/lib/db';
 import { principal } from '@/lib/security';
 import { getContent } from '@/lib/content';
+import { academyDetailKinds } from '@/lib/catalog';
 export default async function Page({params}:{params:Promise<{section:string;slug:string}>}) {
   const {section,slug}=await params,{user,nodes,progress,favorites,links}=await academyData();
-  const route:Record<string,string>={lessons:'lesson',recipes:'recipe',attachments:'attachment',courses:'course',collections:'collection',news:'post',materials:'material',events:'event',sections:'section',modules:'module'};
-  const node=nodes.find(n=>n.slug===slug&&n.kind===route[section]);if(!node)notFound();
+  const node=nodes.find(n=>n.slug===slug&&n.kind===academyDetailKinds[section]);if(!node)notFound();
   const tokens=await pageTokens();const media=await withDb(async db=>{const actor=await principal(db,tokens);await getContent(db,node.id,actor);return (await db.query<{id:string;kind:string;state:string}>('SELECT m.id,m.kind,m.state FROM media m JOIN content_media l ON l.media_id=m.id WHERE l.content_id=$1',[node.id])).rows;});
   const related=nodes.filter(n=>links.some(l=>l.source_id===node.id&&l.target_id===n.id||l.target_id===node.id&&l.source_id===n.id));
   const children=nodes.filter(n=>n.parent_id===node.id);

@@ -21,16 +21,22 @@ export function messageFor(code:string) {
     PRIVATE_CONTENT_KIND:'Этот материал можно открыть только Академии или амбассадорам.',
     PUBLIC_VIDEO_FORBIDDEN:'Удалите видео из материала или измените его доступ на закрытый.',
     ALREADY_EXISTS:'Такой адрес уже используется. Укажите другой адрес.',
+    UNPUBLISH_FIRST:'Сначала снимите материал с публикации.',
+    CONTENT_IN_USE:'Материал используется в курсе, ссылках, избранном, прогрессе или записях на встречу. Его можно скрыть или архивировать.',
+    MEDIA_IN_USE:'Сначала уберите файл из материалов, к которым он прикреплён.',
+    MEDIA_UPLOAD_IN_PROGRESS:'Загрузка ещё завершается. Обновите статус и повторите.',
+    LEGACY_MEDIA_DELETE_REQUIRED:'Этот файл хранится в прежнем видеосервисе. Обратитесь к Tech Admin.',
   } as Record<string,string>)[code]??'Не удалось выполнить действие. Попробуйте позже или обратитесь в поддержку.';
 }
 export async function apiCall(url:string,payload:unknown,method='POST',signal?:AbortSignal) {
   const response=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin',signal});
   const result=await response.json(); if(!response.ok) throw new Error(messageFor(result.error));return result;
 }
-export function ActionButton({url,payload,label,method='POST',goTo}:{url:string;payload?:unknown;label:string;method?:string;goTo?:string}) {
+export function ActionButton({url,payload,label,method='POST',goTo,confirm}:{url:string;payload?:unknown;label:string;method?:string;goTo?:string;confirm?:string}) {
   const [pending,setPending]=useState(false),[status,setStatus]=useState(''); const router=useRouter();
   return <span className="action-control"><button className="btn btn-dark" type="button" disabled={pending} onClick={async()=>{
-    setPending(true);setStatus('');try {const result=await apiCall(url,payload??{},method);setStatus(result.status==='waitlist'?'Вы в листе ожидания.':'Сохранено.');if(goTo)router.push(goTo);router.refresh();} catch(error){setStatus((error as Error).message);} finally{setPending(false);}
+    if(pending||confirm&&!window.confirm(confirm))return;
+    setPending(true);setStatus('');try {const result=await apiCall(url,payload??{},method);setStatus(method==='DELETE'?'Удалено.':result.status==='waitlist'?'Вы в листе ожидания.':'Сохранено.');if(goTo)router.push(goTo);router.refresh();} catch(error){setStatus((error as Error).message);} finally{setPending(false);}
   }}>{pending?'Сохраняем…':label}</button><span role="status">{status}</span></span>;
 }
 export function TelegramCodeForm() {

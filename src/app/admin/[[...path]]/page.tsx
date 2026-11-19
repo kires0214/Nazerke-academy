@@ -6,11 +6,14 @@ import { ActionButton,SupportForm } from '@/components/actions';
 import { RichText } from '@/components/cards';
 import { withDb } from '@/lib/db';
 import { pageTokens,studioData } from '@/lib/pages';
-import { hasGrant,isStudioRole,principal,requireGrant } from '@/lib/security';
-import { canEditContent,kinds,listContent } from '@/lib/content';
+import { hasGrant,isStudioRole,principal } from '@/lib/security';
+import { canDeleteContent,canEditContent,kinds,listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
 import { pendingRegistrationRequests } from '@/lib/telegram-access';
+import { auditPage,canManageMedia,readAuditFilter } from '@/lib/activity';
+import { studioAccounts } from '@/lib/accounts';
+import { AuditPanel } from '@/components/audit-panel';
 const contentSections=[
   {slug:'',label:'Все материалы',kinds:[]},
   {slug:'courses',label:'Курсы и уроки',kinds:['course','module','lesson']},
@@ -20,7 +23,7 @@ const contentSections=[
   {slug:'events',label:'Мастер-классы',kinds:['event']},
 ];
 const contentStatuses={draft:'Черновик',published:'Опубликовано',hidden:'Снято с публикации',archived:'В архиве'};
-export default async function Page({params}:{params:Promise<{path?:string[]}>}) {
+export default async function Page({params,searchParams}:{params:Promise<{path?:string[]}>;searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   await studioData();
   const path=(await params).path??[],tokens=await pageTokens();
   return withDb(async db=>{
@@ -45,11 +48,12 @@ export default async function Page({params}:{params:Promise<{path?:string[]}>}) 
       </>;
     }
     if(['new','edit','preview'].includes(path[0])) {
-      requireGrant(user,'content.read');if(path[0]!=='preview')requireGrant(user,'content.edit');
+      if(!hasGrant(user,'content.read')||path[0]!=='preview'&&!hasGrant(user,'content.edit'))notFound();
       const nodes=await listContent(db,user,true),node=nodes.find(n=>n.id===path[1]);if(path[0]!=='new'&&!node)notFound();
       const editable=node?canEditContent(user,node.kind,node.status):hasGrant(user,'content.edit');
+      const deleteAction=node&&node.status!=='published'&&canDeleteContent(user,node.kind)?<ActionButton url={'/api/studio/content/'+node.id} method="DELETE" label="Удалить материал" confirm="Удалить материал навсегда?" goTo="/admin"/>:null;
       if(path[0]==='preview') return <><p className="notes">Предпросмотр Studio · {contentStatuses[node!.status]}</p><h1>{node!.title}</h1><p>{node!.description}</p><RichText text={node!.data.body}/>
-        <Link href={editable?'/admin/edit/'+node!.id:'/admin'}>{editable?'Вернуться к редактированию →':'Все материалы →'}</Link></>;
+        <div className="detail-actions"><Link className="btn btn-outline" href={editable?'/admin/edit/'+node!.id:'/admin'}>{editable?'Вернуться к редактированию':'Все материалы'}</Link>{deleteAction}</div></>;
       if(!editable)return <><h1>Редактирование недоступно</h1><p>Для этого материала нужны дополнительные права.</p><Link href={'/admin/preview/'+node!.id}>Открыть предпросмотр</Link></>;
       const media=(await db.query<{id:string;kind:string;state:string}>('SELECT id,kind,state FROM media ORDER BY created_at DESC LIMIT 200')).rows;
       const links=node?(await db.query<{target_id:string}>('SELECT target_id FROM content_links WHERE source_id=$1',[node.id])).rows.map(l=>l.target_id):[];
@@ -58,12 +62,13 @@ export default async function Page({params}:{params:Promise<{path?:string[]}>}) 
         {node?<p><Link className="btn btn-outline" href={'/admin/preview/'+node.id}>Предпросмотр</Link></p>:null}
         <CmsEditor key={node?.id??'new'} node={node} nodes={nodes} media={media} links={links} mediaIds={mediaIds}
           allowedKinds={kinds.filter(kind=>canEditContent(user,kind))} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}/>
+        {deleteAction?<div className="detail-actions">{deleteAction}</div>:null}
       </>;
     }
     if(path[0]==='users') {
-      requireGrant(user,'students.read');
+      if(!hasGrant(user,'students.read'))notFound();
       const requests=await pendingRegistrationRequests(db,user);
-      const users=(await db.query<{id:string;display_name:string;status:string;role:string}>("SELECT id,display_name,status,role FROM users WHERE $1::boolean OR role IN ('student','ambassador') ORDER BY created_at DESC LIMIT 200",[user.role==='techadmin'])).rows;
+      const users=await studioAccounts(db,user);
       const allGrants=user.role==='techadmin'?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
       return <><h1>Доступ в академию</h1><h2>Заявки на приглашение</h2>
         {requests.length===0?<p>Новых заявок нет.</p>:requests.map(request=><section className="info-box" key={request.id}>
@@ -73,20 +78,36 @@ export default async function Page({params}:{params:Promise<{path?:string[]}>}) 
             <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить"/>
           </div>:null}
         </section>)}
-        <h2>Аккаунты</h2>{users.map(u=><section className="info-box" key={u.id}><h3>{u.display_name}</h3><p>{u.status} · {u.role}</p><div className="detail-actions">
+        <h2>Аккаунты</h2>{users.map(u=><section className="info-box" key={u.id}><h3>{u.display_name}</h3><p>{u.status} · {u.role} · {u.active_session?'Есть активный сеанс':'Нет активного сеанса'}</p>
+        {u.last_login?<p>Последний вход · {new Date(u.last_login).toLocaleString('ru-RU',{timeZone:'Asia/Qyzylorda'})}</p>:null}<div className="detail-actions">
         {u.status==='pending'&&hasGrant(user,'students.approve')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'approve'}} label="Подтвердить доступ"/>:null}
-        {u.role!=='techadmin'&&hasGrant(user,'students.block')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'block'}} label="Заблокировать"/>:null}
+        {u.role!=='techadmin'&&hasGrant(user,'students.block')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:u.status==='blocked'?'unblock':'block'}} label={u.status==='blocked'?'Разблокировать':'Заблокировать'}/>:null}
         {u.role!=='techadmin'&&hasGrant(user,'devices.reset')?<ActionButton url={'/api/studio/devices/'+u.id} label="Сбросить браузер"/>:null}
         {['student','ambassador'].includes(u.role)&&hasGrant(user,'ambassadors.assign')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'ambassador',enabled:u.role!=='ambassador'}} label={u.role==='ambassador'?'Снять допуск амбассадора':'Назначить амбассадором'}/>:null}
         {user.role==='techadmin'&&u.role!=='techadmin'?<><ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'learning',enabled:true}} label="Дать учебный допуск"/><ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'learning',enabled:false}} label="Снять учебный допуск"/></>:null}</div>
         {user.role==='techadmin'&&u.role!=='techadmin'?<StaffControls id={u.id} role={u.role} currentGrants={allGrants.filter(g=>g.user_id===u.id).map(g=>g.permission)}/>:null}</section>)}</>;
     }
-    if(path[0]==='media') {requireGrant(user,'media.upload');const media=(await db.query<{id:string;kind:string;state:string}>('SELECT id,kind,state FROM media ORDER BY created_at DESC LIMIT 200')).rows;return <><h1>Медиа</h1><MediaUpload/>{media.map(m=><div className="info-box" key={m.id}><p>{m.kind} · {m.state} · {m.id.slice(0,8)}</p>{m.kind==='video'?<ActionButton url={'/api/studio/media/'+m.id+'/refresh'} label="Обновить статус"/>:null}</div>)}</>;}
-    if(path[0]==='support') {
-      const messages=await supportHistory(db,user,true),threads=[...new Set(messages.map(m=>String(m.thread_id)))];
-      return <><h1>Поддержка</h1><ActionButton url="/api/studio/outbox/retry" label="Повторить неудачные уведомления"/>{threads.map(id=><section className="info-box" key={id}><h2>Обращение {id.slice(0,8)}</h2>{messages.filter(m=>m.thread_id===id).slice().reverse().map(m=><div className="support-message" key={String(m.id)}><strong>{m.sender==='human'?'Сотрудник JUICY':'Ученик'}</strong><p>{String(m.body)}</p></div>)}{hasGrant(user,'support.respond')?<SupportForm threadId={id}/>:null}</section>)}</>;
+    if(path[0]==='media') {
+      if(!canManageMedia(user))notFound();
+      const media=(await db.query<{id:string;kind:string;state:string;provider:string}>('SELECT id,kind,state,provider FROM media ORDER BY created_at DESC LIMIT 200')).rows;
+      const canUpload=hasGrant(user,'media.upload'),canDelete=hasGrant(user,'media.delete');
+      return <><h1>Медиа</h1>{canUpload?<MediaUpload/>:null}
+        {media.map(m=><div className="info-box" key={m.id}><p>{m.kind} · {m.state} · {m.id.slice(0,8)}</p>
+          <div className="detail-actions">{m.provider==='mux'&&canUpload?<ActionButton url={'/api/studio/media/'+m.id+'/refresh'} label="Обновить статус"/>:null}
+            {canDelete&&m.provider!=='stream'?<ActionButton url={'/api/studio/media/'+m.id} method="DELETE" label="Удалить файл" confirm="Удалить этот файл навсегда?"/>:null}</div></div>)}
+      </>;
     }
-    if(path[0]==='audit') {check(user.role==='techadmin',403,'TECHADMIN_ONLY');const events=(await db.query('SELECT id,operation,entity_id,created_at FROM audit_events ORDER BY created_at DESC LIMIT 100')).rows;return <><h1>Аудит</h1>{events.map(e=><p key={String(e.id)}>{String(e.created_at)} · {String(e.operation)} · {String(e.entity_id)}</p>)}</>;}
+    if(path[0]==='support') {
+      if(!hasGrant(user,'support.read'))notFound();
+      const messages=await supportHistory(db,user,true),threads=[...new Set(messages.map(m=>String(m.thread_id)))];
+      return <><h1>Поддержка</h1>{hasGrant(user,'support.respond')?<ActionButton url="/api/studio/outbox/retry" label="Повторить неудачные уведомления"/>:null}{threads.map(id=><section className="info-box" key={id}><h2>Обращение {id.slice(0,8)}</h2>{messages.filter(m=>m.thread_id===id).slice().reverse().map(m=><div className="support-message" key={String(m.id)}><strong>{m.sender==='human'?'Сотрудник JUICY':'Ученик'}</strong><p>{String(m.body)}</p></div>)}{hasGrant(user,'support.respond')?<SupportForm threadId={id}/>:null}</section>)}</>;
+    }
+    if(path[0]==='audit') {
+      if(!hasGrant(user,'audit.read'))notFound();
+      const query=await searchParams;
+      const filter=readAuditFilter(key=>query[key]);
+      return <AuditPanel result={await auditPage(db,user,filter)} filter={filter} full={user.role==='techadmin'}/>;
+    }
     notFound();
   });
 }

@@ -19,7 +19,7 @@ export function AcademyShell({user,children}:{user:Principal;children:ReactNode}
     <main id="main" className="academy-content">{children}</main><nav className="bottom-nav" aria-label="Мобильная навигация">{[['/academy','Главная'],['/academy/learn','Обучение'],['/academy/recipes','Рецепты'],['/academy/events','Встречи'],['/academy/more','Ещё']].map(([href,label])=><Link key={href} href={href}>{label}</Link>)}</nav></div>;
 }
 export function StudioShell({user,children}:{user:Principal;children:ReactNode}) {
-  const tabs=[['/admin','Контент',hasGrant(user,'content.read')],['/admin/users','Доступ',hasGrant(user,'students.read')],['/admin/media','Медиа',hasGrant(user,'media.upload')],['/admin/support','Поддержка',hasGrant(user,'support.read')],['/admin/audit','Аудит',user.role==='techadmin']];
+  const tabs=[['/admin','Контент',hasGrant(user,'content.read')],['/admin/users','Доступ',hasGrant(user,'students.read')],['/admin/media','Медиа',hasGrant(user,'media.upload')||hasGrant(user,'media.delete')],['/admin/support','Поддержка',hasGrant(user,'support.read')],['/admin/audit','Аудит',hasGrant(user,'audit.read')]];
   return <div className="wrap admin"><header className="nav studio-header"><Logo name="Studio" href="/admin"/><Link className="btn btn-outline" href="/academy">В Академию</Link></header>
     <div className="admin-grid"><nav className="admin-sidebar" aria-label="Studio">{tabs.filter(x=>x[2]).map(([href,label])=><Link key={String(href)} href={String(href)}>{label}</Link>)}</nav><main id="main" className="admin-panel">{children}</main></div></div>;
 }

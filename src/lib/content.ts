@@ -52,6 +52,10 @@ export function canEditContent(actor:Principal,kind:string,status?:Content['stat
   return hasGrant(actor,'content.edit') && (!grant || hasGrant(actor,grant)) &&
     (status!=='published' || hasGrant(actor,'content.publish'));
 }
+export function canDeleteContent(actor:Principal,kind:string) {
+  const grant=kindGrants[kind];
+  return hasGrant(actor,'content.delete') && (!grant || hasGrant(actor,grant));
+}
 export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: string) {
   const input = contentSchema.parse(raw);
   requireGrant(actor,'content.edit');
@@ -92,6 +96,24 @@ export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: s
       AND ($2='academy' OR u.role='ambassador' AND EXISTS(SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='ambassador')))`,['JUICY: '+input.title,input.audience]);
   }
   return contentId;
+}
+
+export async function deleteContent(db:Db,actor:Principal,id:string) {
+  requireGrant(actor,'content.delete');
+  const {rows:[node]}=await db.query<{kind:string;status:Content['status']}>('SELECT kind,status FROM content WHERE id=$1 FOR UPDATE',[id]);
+  check(node,404,'CONTENT_NOT_FOUND');
+  check(canDeleteContent(actor,node.kind),403,'PERMISSION_DENIED');
+  check(node.status!=='published',409,'UNPUBLISH_FIRST');
+  const {rows:[refs]}=await db.query<{used:boolean}>(`SELECT EXISTS(SELECT 1 FROM content WHERE parent_id=$1)
+    OR EXISTS(SELECT 1 FROM content_links WHERE target_id=$1)
+    OR EXISTS(SELECT 1 FROM lesson_progress WHERE lesson_id=$1)
+    OR EXISTS(SELECT 1 FROM favorites WHERE content_id=$1)
+    OR EXISTS(SELECT 1 FROM event_registrations WHERE event_id=$1) AS used`,[id]);
+  check(!refs.used,409,'CONTENT_IN_USE');
+  await db.query('DELETE FROM content_media WHERE content_id=$1',[id]);
+  await db.query('DELETE FROM content_links WHERE source_id=$1',[id]);
+  await db.query('DELETE FROM content WHERE id=$1',[id]);
+  await audit(db,actor.id,'content.delete',id);
 }
 
 export async function setProgress(db: Db, user: Principal, id: string, position: number, completed: boolean) {

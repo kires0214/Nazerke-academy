@@ -4,8 +4,10 @@ import { withDb, type Db } from './db';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
 import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, isStudioRole, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
-import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
-import { updateAccount } from './accounts';
+import { deleteContent, filterContent, getContent, listContent, saveContent, setProgress } from './content';
+import { studioAccounts, updateAccount } from './accounts';
+import { auditPage, canManageMedia, pageViewInput, readAuditFilter, recordPageView } from './activity';
+import { deleteMedia } from './media';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
 import { verifyMuxWebhook } from './mux';
 import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
@@ -69,6 +71,11 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
     }
     const result=await run(async db=>{
       const p=await principal(db,requestTokens(req));
+      if(key==='activity'&&method==='POST') {
+        const {path}=pageViewInput.parse(await jsonBody(req));
+        await rateLimit(db,'activity:'+p.id,90);
+        await recordPageView(db,p,path);return {ok:true};
+      }
       await rateLimit(db,'api:'+p.id,120);
       if(key==='profile' && method==='GET') {
         const visible=await listContent(db,p), ids=visible.map(n=>n.id);
@@ -78,7 +85,9 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(key==='progress' && method==='POST') {
         const data=z.object({lessonId:z.uuid(),position:z.number().int().min(0).max(86400),completed:z.boolean()}).strict().parse(await jsonBody(req));
-        await setProgress(db,p,data.lessonId,data.position,data.completed);return {ok:true};
+        await setProgress(db,p,data.lessonId,data.position,data.completed);
+        if(data.completed)await audit(db,p.id,'lesson.complete',data.lessonId);
+        return {ok:true};
       }
       if(key==='favorites' && method==='POST') {
         const data=z.object({contentId:z.uuid(),enabled:z.boolean()}).strict().parse(await jsonBody(req));
@@ -100,9 +109,11 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       if(key==='studio/content' && method==='GET') return listContent(db,p,true);
       if(key==='studio/content' && method==='POST') return {id:await saveContent(db,p,await jsonBody(req))};
       if(path[0]==='studio'&&path[1]==='content'&&path.length===3&&method==='PATCH') return {id:await saveContent(db,p,await jsonBody(req),uuid(path[2]))};
+      if(path[0]==='studio'&&path[1]==='content'&&path.length===3&&method==='DELETE') {
+        await deleteContent(db,p,uuid(path[2]));return {ok:true};
+      }
       if(key==='studio/accounts' && method==='GET') {
-        requireGrant(p,'students.read');
-        return (await db.query("SELECT id,display_name,status,role,created_at FROM users WHERE $1::boolean OR role IN ('student','ambassador') ORDER BY created_at DESC LIMIT 200",[p.role==='techadmin'])).rows;
+        return studioAccounts(db,p);
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
       if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {
@@ -111,15 +122,20 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(path[0]==='studio'&&path[1]==='devices'&&path.length===3&&method==='POST') {await resetDevice(db,p,uuid(path[2]));return {ok:true};}
       if(key==='studio/audit'&&method==='GET') {
-        check(p.role==='techadmin',403,'TECHADMIN_ONLY');
-        return (await db.query('SELECT id,actor_id,operation,entity_id,metadata,created_at FROM audit_events ORDER BY created_at DESC LIMIT 200')).rows;
+        return auditPage(db,p,readAuditFilter(k=>url.searchParams.get(k)));
       }
       if(key==='studio/outbox'&&method==='GET') {requireGrant(p,'support.read');return (await db.query('SELECT id,state,attempts,created_at FROM notification_outbox ORDER BY created_at DESC LIMIT 100')).rows;}
       if(key==='studio/outbox/retry'&&method==='POST') {
         requireGrant(p,'support.respond'); await db.query("UPDATE notification_outbox SET state='pending',attempts=0,next_attempt_at=now() WHERE state='failed'");
         await audit(db,p.id,'notifications.retry','outbox');return {ok:true};
       }
-      if(key==='studio/media'&&method==='GET') {requireGrant(p,'media.upload');return (await db.query('SELECT id,kind,state,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;}
+      if(key==='studio/media'&&method==='GET') {
+        check(canManageMedia(p),403,'PERMISSION_DENIED');
+        return (await db.query('SELECT id,kind,state,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;
+      }
+      if(path[0]==='studio'&&path[1]==='media'&&path.length===3&&method==='DELETE') {
+        await deleteMedia(db,p,uuid(path[2]));return {ok:true};
+      }
       if(key==='studio/media/upload'&&method==='POST') return uploadFile(db,p,req);
       if(key==='studio/media/mux'&&method==='POST') {
         requireGrant(p,'media.upload');await rateLimit(db,'video-upload:'+p.id,10,3600);

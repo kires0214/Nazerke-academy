@@ -12,6 +12,8 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Progress | Start-or-continue logic, completed lesson, favorites persist after relogin |
 | CMS | Create draft, edit, attach media, publish/unpublish; persists in DB |
 | CMS denial | Admin without publishing grant receives 403 on direct request |
+| Deletion | Separate grants, deny published or referenced records, cancel or delete owned Mux media, preserve an audit event |
+| Audit | Tech Admin sees all actions, delegated admin sees own and learner activity, others denied; repeat visits show path, actor, time and count |
 | Student role | Cannot read admin or other user's progress/support, even by URL |
 | Ambassador role | Student denied protected ambassador lessons; ambassador allowed |
 | Techadmin RBAC | Techadmin grant updates audited; normal admin cannot self-elevate |

@@ -22,7 +22,7 @@ export function verifyDownload(mediaId:string,sessionToken:string,expires:number
 export function equal(a: string, b: string) { const left=Buffer.from(a),right=Buffer.from(b);return left.length === right.length && timingSafeEqual(left,right); }
 
 export async function audit(db: Db, actor: string | null, operation: string, entity: string, metadata = {}) {
-  await db.query('INSERT INTO audit_events(actor_id,operation,entity_id,metadata) VALUES($1,$2,$3,$4)',[actor,operation,entity,JSON.stringify(metadata)]);
+  await db.query('INSERT INTO audit_events(actor_id,operation,entity_id,metadata,actor_role) VALUES($1,$2,$3,$4,(SELECT role FROM users WHERE id=$1))',[actor,operation,entity,JSON.stringify(metadata)]);
 }
 export async function rateLimit(db: Db, key: string, limit: number, seconds = 60) {
   const bucket = Math.floor(Date.now()/1000/seconds);

@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { Db } from './db';
 import { check } from './errors';
-import { hasGrant, requireGrant, rateLimit, type Principal } from './security';
+import { audit, hasGrant, requireGrant, rateLimit, type Principal } from './security';
 import { telegramSend } from './providers';
 import { handleTelegramAccess, telegramContact } from './telegram-access';
 
@@ -17,6 +17,7 @@ export async function supportMessage(db:Db,user:Principal,body:string,threadId?:
   }
   await db.query('INSERT INTO support_messages(thread_id,actor_id,sender,body) VALUES($1,$2,$3,$4)',[thread.id,user.id,threadId?'human':'student',body]);
   await db.query("UPDATE support_threads SET updated_at=now(),status='open' WHERE id=$1",[thread.id]);
+  await audit(db,user.id,threadId?'support.reply':'support.message',thread.id);
   if(threadId) {
     await db.query('INSERT INTO notification_outbox(chat_id,body) SELECT telegram_id,$2 FROM users WHERE id=$1 AND telegram_opt_in AND status=\'approved\'',[thread.user_id,'Ответ сотрудника JUICY: '+body]);
   } else if(process.env.TELEGRAM_SUPPORT_CHAT_ID) {

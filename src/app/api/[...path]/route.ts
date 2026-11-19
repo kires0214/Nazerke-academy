@@ -6,7 +6,7 @@ export const maxDuration=60;
 async function handler(request:NextRequest,context:{params:Promise<{path:string[]}>}) {
   const path=(await context.params).path;
   const response=await handleApi(request,path);
-  if(request.method!=='GET'&&response.ok&&path.join('/')!=='mux/webhook') scheduleNotifications();
+  if(request.method!=='GET'&&response.ok&&!['mux/webhook','activity'].includes(path.join('/'))) scheduleNotifications();
   return response;
 }
-export {handler as GET,handler as POST,handler as PATCH};
+export {handler as GET,handler as POST,handler as PATCH,handler as DELETE};

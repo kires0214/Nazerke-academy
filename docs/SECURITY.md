@@ -4,7 +4,7 @@ PUBLIC repo now: NO secrets, API tokens, Neon connection, Telegram bot tokens, M
 
 Five roles: guest public; student approved content; ambassador student plus separate course; admin granular grants; techadmin assigns/revokes admin grants and manages system. No student/ambassador /admin. Backend protects endpoint even if UI hidden. Admin cannot add other admins, change their grants, self-upgrade or become techadmin. Staff grants and private educational access are separate. Audit every changes to role/grant, device/session, publication and access.
 
-Core grants: content.edit, content.publish, content.delete, sections.manage, courses.manage, recipes.manage, media.upload, events.manage, support.read/respond, students.read/approve/block, devices.reset, ambassadors.assign, announcements.manage, analytics.read. Techadmin-only: admin/grants/system security. No direct client role switcher in PROD.
+Core grants include content.read/edit/publish/delete, per-kind content management, media.upload/delete, support.read/respond, students.read/approve/block, devices.reset, ambassadors.assign and audit.read. Only Tech Admin assigns staff roles and permissions and sees the full staff security audit. A regular admin with audit.read sees their own events and learner activity. Other users and admins without audit.read have neither a UI link nor API access.
 
 Telegram access: accept private-chat updates only after verifying the configured webhook secret. Accept only the sender's own contact for an invitation request. Store the name and phone in the separate review queue and clear the phone at decision. Create an account only after staff grants the invitation. Issue a random five-minute code to an approved Telegram identity and keep its hash in PostgreSQL. Redeem it once through a same-origin POST under the existing browser and session rules.
 
@@ -12,6 +12,6 @@ One enrolled browser + one active session, transactions with per-user lock/uniqu
 
 Mux Basic 1080p, DRM disabled: signed playback issued only after verified session/content entitlement; duration-aware tokens and renewal are documented in MUX_SETUP.md. Revoke/expiry denial, no permanent raw video URL. PDF/download same access checks. Screen recording cannot be fully prevented.
 
-Threat tests: IDOR cross-user data, forged/replayed Telegram auth and webhooks, XSS/CSRF, second device race, session fixation/revocation, admin self-escalation, unapproved user bypass, video TTL, forged support ticket access. Log without secrets and minimum PII; rate-limit login, support and signup. Backups and recovery trial before pilot. Check Kazakhstan personal-data law and required consent/localization before real client records.
+Threat tests cover cross-user access, forged Telegram webhooks, expired and replayed codes, XSS/CSRF, competing device/session requests, revoked access, admin self-escalation, private video and restricted support. Operational audit records approved users' visits to allowlisted Academy and Studio paths and authorized changes. Counts reflect navigation events received by the server. Store the actor, time and path without query strings, tokens, network addresses or message text. Audit history is append-only. Perform backups and recovery trials before the pilot.
 
 DEV has synthetic data and different credentials; PROD real clients. No separate TEST tier.

@@ -12,18 +12,59 @@ export const muxAssetSchema = z.object({
   playback_ids:z.array(z.object({id:muxId,policy:z.string()})).default([]),
 });
 export type MuxAsset = z.infer<typeof muxAssetSchema>;
-export async function muxApi<T=unknown>(path:string,method='GET',body?:unknown,fetcher:Fetcher=fetch):Promise<T> {
+async function muxRequest(path:string,method:string,body:unknown,fetcher:Fetcher) {
   const id=process.env.MUX_TOKEN_ID,secret=process.env.MUX_TOKEN_SECRET;
   check(id&&secret&&!/[\s:]/.test(id)&&!/[\s]/.test(secret),503,'MUX_NOT_CONFIGURED');
   const cancelUpload=method==='PUT'&&/^\/uploads\/[A-Za-z0-9_-]+\/cancel$/.test(path);
   check(cancelUpload||/^\/(assets|uploads|signing-keys)(\/[A-Za-z0-9_-]+)?(\?limit=1)?$/.test(path),500,'INVALID_MUX_PATH');
-  const response=await fetcher('https://api.mux.com/video/v1'+path,{
+  return fetcher('https://api.mux.com/video/v1'+path,{
     method,headers:{Authorization:'Basic '+Buffer.from(id+':'+secret).toString('base64'),'Content-Type':'application/json'},
     body:body===undefined?undefined:JSON.stringify(body),redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
   });
+}
+export async function muxApi<T=unknown>(path:string,method='GET',body?:unknown,fetcher:Fetcher=fetch):Promise<T> {
+  const response=await muxRequest(path,method,body,fetcher);
   check(response.ok,502,'MUX_UNAVAILABLE');
   const result=await response.json();check(result&&result.data!==undefined,502,'MUX_INVALID_RESPONSE');
   return result.data as T;
+}
+async function getMuxIfPresent<T>(path:string,fetcher:Fetcher) {
+  const response=await muxRequest(path,'GET',undefined,fetcher);
+  if(response.status===404) {await response.body?.cancel();return undefined;}
+  check(response.ok,502,'MUX_UNAVAILABLE');
+  const result=await response.json();
+  check(result?.data!==undefined,502,'MUX_INVALID_RESPONSE');
+  return result.data as T;
+}
+
+export async function deleteOwnedMuxMedia(media:{id:string;mux_upload_id:string|null;provider_id:string|null},fetcher:Fetcher=fetch) {
+  const uploadId=muxId.parse(media.mux_upload_id);
+  const path='/uploads/'+uploadId;
+  type Upload={id:string;status:string;asset_id?:string;new_asset_settings?:{passthrough?:string}};
+  let upload=await getMuxIfPresent<Upload>(path,fetcher);
+  if(upload?.status==='waiting') {
+    check(upload.id===uploadId&&upload.new_asset_settings?.passthrough===media.id,409,'MUX_ASSET_MISMATCH');
+    const canceled=await muxRequest(path+'/cancel','PUT',undefined,fetcher);
+    await canceled.body?.cancel();
+    check(canceled.ok||[400,404,409].includes(canceled.status),502,'MUX_UNAVAILABLE');
+    upload=await getMuxIfPresent<Upload>(path,fetcher);
+  }
+  if(upload) {
+    check(upload.id===uploadId&&upload.new_asset_settings?.passthrough===media.id,409,'MUX_ASSET_MISMATCH');
+    check(!media.provider_id||!upload.asset_id||media.provider_id===upload.asset_id,409,'MUX_ASSET_MISMATCH');
+  }
+  const assetId=media.provider_id??upload?.asset_id;
+  if(!assetId) {
+    check(!upload||['cancelled','timed_out','errored'].includes(upload.status),409,'MEDIA_UPLOAD_IN_PROGRESS');
+    return;
+  }
+  const assetPath='/assets/'+muxId.parse(assetId);
+  const asset=await getMuxIfPresent<MuxAsset>(assetPath,fetcher);
+  if(!asset)return;
+  check(asset.id===assetId&&asset.upload_id===uploadId&&asset.passthrough===media.id,409,'MUX_ASSET_MISMATCH');
+  const response=await muxRequest(assetPath,'DELETE',undefined,fetcher);
+  await response.body?.cancel();
+  check(response.ok||response.status===404,502,'MUX_UNAVAILABLE');
 }
 export function validateUploadUrl(value:string) {
   const url=muxDirectUploadTarget(value);
