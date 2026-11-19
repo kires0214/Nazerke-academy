@@ -10,6 +10,7 @@ import { hasGrant,principal,requireGrant } from '@/lib/security';
 import { listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
+import { pendingRegistrationRequests } from '@/lib/telegram-access';
 export default async function Page({params}:{params:Promise<{path?:string[]}>}) {
   await studioData();
   const path=(await params).path??[],tokens=await pageTokens();
@@ -31,9 +32,18 @@ export default async function Page({params}:{params:Promise<{path?:string[]}>}) 
     }
     if(path[0]==='users') {
       requireGrant(user,'students.read');
+      const requests=await pendingRegistrationRequests(db,user);
       const users=(await db.query<{id:string;display_name:string;status:string;role:string}>("SELECT id,display_name,status,role FROM users WHERE $1::boolean OR role IN ('student','ambassador') ORDER BY created_at DESC LIMIT 200",[user.role==='techadmin'])).rows;
       const allGrants=user.role==='techadmin'?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
-      return <><h1>Доступ в академию</h1>{users.map(u=><section className="info-box" key={u.id}><h2>{u.display_name}</h2><p>{u.status} · {u.role}</p><div className="detail-actions">
+      return <><h1>Доступ в академию</h1><h2>Заявки на приглашение</h2>
+        {requests.length===0?<p>Новых заявок нет.</p>:requests.map(request=><section className="info-box" key={request.id}>
+          <h3>{request.display_name}</h3><p>{request.phone}</p>
+          {hasGrant(user,'students.approve')?<div className="detail-actions">
+            <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'invite'}} label="Пригласить"/>
+            <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить"/>
+          </div>:null}
+        </section>)}
+        <h2>Аккаунты</h2>{users.map(u=><section className="info-box" key={u.id}><h3>{u.display_name}</h3><p>{u.status} · {u.role}</p><div className="detail-actions">
         {u.status==='pending'&&hasGrant(user,'students.approve')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'approve'}} label="Подтвердить доступ"/>:null}
         {u.role!=='techadmin'&&hasGrant(user,'students.block')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'block'}} label="Заблокировать"/>:null}
         {u.role!=='techadmin'&&hasGrant(user,'devices.reset')?<ActionButton url={'/api/studio/devices/'+u.id} label="Сбросить браузер"/>:null}

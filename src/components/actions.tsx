@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 export function messageFor(code:string) {
@@ -12,6 +12,8 @@ export function messageFor(code:string) {
     MUX_QUALITY_MISMATCH:'Видео пока недоступно.',SESSION_EXPIRES_SOON:'Войдите снова, чтобы продолжить урок.',
     VIDEO_BROWSER_UNSUPPORTED:'Откройте урок в браузере с поддержкой видео HLS.',EVENT_CLOSED:'Запись на встречу закрыта.',
     BROWSER_REGISTERED_CONTACT_SUPPORT:'Аккаунт привязан к другому браузеру. Обратитесь в поддержку.',
+    TELEGRAM_CODE_INVALID:'Код истёк или уже использован. Запросите новый код в Telegram.',
+    INVITE_REQUIRED:'Для входа нужно приглашение команды JUICY.',
   } as Record<string,string>)[code]??'Не удалось выполнить действие. Попробуйте позже или обратитесь в поддержку.';
 }
 export async function apiCall(url:string,payload:unknown,method='POST',signal?:AbortSignal) {
@@ -24,15 +26,26 @@ export function ActionButton({url,payload,label,method='POST',goTo}:{url:string;
     setPending(true);setStatus('');try {const result=await apiCall(url,payload??{},method);setStatus(result.status==='waitlist'?'Вы в листе ожидания.':'Сохранено.');if(goTo)router.push(goTo);router.refresh();} catch(error){setStatus((error as Error).message);} finally{setPending(false);}
   }}>{pending?'Сохраняем…':label}</button><span role="status">{status}</span></span>;
 }
-export function TelegramWidget({bot,authUrl}:{bot:string;authUrl:string}) {
-  const ref=useRef<HTMLDivElement>(null);
-  useEffect(()=>{
-    const host=ref.current;if(!host)return;
-    const script=document.createElement('script');script.src='https://telegram.org/js/telegram-widget.js?22';script.async=true;
-    script.setAttribute('data-telegram-login',bot);script.setAttribute('data-size','large');script.setAttribute('data-auth-url',authUrl);
-    host.appendChild(script);return()=>{host.replaceChildren();};
-  },[bot,authUrl]);
-  return <div ref={ref} className="telegram-widget" aria-label="Вход через Telegram"/>;
+export function TelegramCodeForm() {
+  const [status,setStatus]=useState(''),[pending,setPending]=useState(false);
+  return <form className="form-stack" onSubmit={async event=>{
+    event.preventDefault();
+    if(pending)return;
+    const code=String(new FormData(event.currentTarget).get('code')??'').trim();
+    setStatus('');
+    setPending(true);
+    try {
+      await apiCall('/api/auth/telegram',{code});
+      window.location.assign('/academy');
+    }catch(error){
+      setStatus((error as Error).message);
+      setPending(false);
+    }
+  }}>
+    <label>Код из Telegram<input name="code" required minLength={12} maxLength={12} autoComplete="one-time-code" autoCapitalize="none" spellCheck={false}/></label>
+    <button type="submit" className="btn btn-dark" disabled={pending}>{pending?'Проверяем…':'Войти'}</button>
+    <p role="status">{status}</p>
+  </form>;
 }
 export function SupportForm({threadId}:{threadId?:string}) {
   const [status,setStatus]=useState(''),[pending,setPending]=useState(false);const router=useRouter();

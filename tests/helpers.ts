@@ -1,7 +1,7 @@
 import { PGlite } from '@electric-sql/pglite';
 import { randomUUID } from 'node:crypto';
 import type { Db } from '../src/lib/db';
-import { createLogin,principal,hash,type Principal,type Tokens } from '../src/lib/security';
+import { createLogin,principal,type Principal,type Tokens } from '../src/lib/security';
 import { seedDev } from '../scripts/seed';
 import { migrate } from '../scripts/migrate';
 
@@ -18,7 +18,8 @@ export async function fixture() {
   let number=900000000000000;
   async function account(role='student',status='approved',scopes=['academy'],permissions:string[]=[]) {
     const telegramId=String(++number);
-    const login=await run(db=>createLogin(db,{telegramId,name:'Synthetic DEV',receipt:hash(randomUUID())}));
+    await engine.query("INSERT INTO users(telegram_id,display_name,status) VALUES($1,'Synthetic DEV','approved')",[telegramId]);
+    const login=await run(db=>createLogin(db,telegramId));
     const tokens:Tokens={session:login.sessionToken,device:login.deviceToken};
     const id=(await engine.query<{id:string}>('UPDATE users SET role=$2,status=$3 WHERE telegram_id=$1 RETURNING id',[telegramId,role,status])).rows[0].id;
     for(const scope of scopes)await engine.query('INSERT INTO access_entitlements(user_id,scope) VALUES($1,$2)',[id,scope]);

@@ -6,7 +6,7 @@ import {fixture} from './helpers';
 import {configureMux,syntheticMux,syntheticPublicKey} from './mux-fixtures';
 import {handleApi} from '../src/lib/api';
 import {cookieNames} from '../src/lib/http';
-import {createLogin,hash,type Tokens} from '../src/lib/security';
+import {createLogin,type Tokens} from '../src/lib/security';
 import {privateAsset,signMuxPlayback,validateUploadUrl,verifyMuxWebhook} from '../src/lib/mux';
 import {leaseNeedsRenewal,putDirectVideo,refreshMuxRequest,replaceNativeSource,validateLease} from '../src/lib/video-client';
 
@@ -75,7 +75,7 @@ test('unauthorized roles, revoked sessions, second browser and hidden content ca
     assert.equal(mux.state.requests,before);
     assert.equal((await handleApi(request('studio/media/mux','POST',student.tokens,{}),['studio','media','mux'],f.run)).status,403);
     assert.equal(mux.state.requests,before);
-    const replacement=await f.run(db=>createLogin(db,{telegramId:student.telegramId,name:'Synthetic DEV',receipt:hash('replacement-mux-test')},student.tokens.device));
+    const replacement=await f.run(db=>createLogin(db,student.telegramId,student.tokens.device));
     assert.equal((await handleApi(request(path.join('/'),'GET',student.tokens),path,f.run)).status,401);
     const fresh={session:replacement.sessionToken,device:replacement.deviceToken};
     await f.engine.query("UPDATE content SET status='hidden' WHERE id=$1",[recipe.id]);assert.equal((await handleApi(request(path.join('/'),'GET',fresh),path,f.run)).status,403);

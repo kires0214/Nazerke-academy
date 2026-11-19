@@ -47,7 +47,7 @@ Owner override 2026-11-08: Mux Basic 1080p replaces the prior video provider. Di
 
 ## 5. Вход и подтверждение
 
-Telegram login на официальной поддерживаемой схеме. Backend проверяет цифровую подпись/hash, срок auth_date, origin и bot identity по документации интеграции. Нельзя верить Telegram ID, role, status или access на основе клиентского JS без server verification. Новый пользователь pending до подтверждения. Только approved пользователь с действующей сессией и назначенным учебным entitlement читает закрытые API/видео.
+Доступ только по приглашению. Посетитель отправляет свой контакт через Telegram-бота, команда рассматривает имя и номер телефона в Studio. Учётная запись создаётся после приглашения. Бот выдаёт одноразовый код только для подтверждённого Telegram ID; сервер проверяет секрет вебхука, срок кода и origin запроса. Только approved пользователь с действующей сессией и назначенным учебным entitlement читает закрытые API/видео.
 
 Telegram bot webhook получает update с проверяемым secret, idempotency по update_id, безопасным редактированием данных, rate limiting. Вебхуки исполняются через Vercel Functions, без Railway.
 

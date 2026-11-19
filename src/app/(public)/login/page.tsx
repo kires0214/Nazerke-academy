@@ -1,13 +1,23 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
 import { PageHead } from '@/components/cards';
-import { TelegramWidget } from '@/components/actions';
-import { baseUrl,cookieNames } from '@/lib/http';
-export default async function Page({searchParams}:{searchParams:Promise<{state?:string}>}) {
-  const {state}=await searchParams,jar=await cookies();
-  const configured=!!(process.env.TELEGRAM_BOT_TOKEN&&process.env.TELEGRAM_LOGIN_BOT_NAME&&process.env.DATABASE_URL&&process.env.APP_BASE_URL);
-  const validState=state&&/^[\w-]{43}$/.test(state)&&jar.get(cookieNames().state)?.value===state;
-  return <><PageHead title="Добро пожаловать в JUICY" description="Войдите через Telegram. Новый аккаунт ожидает ручного подтверждения команды."/><section className="info-box login-box">
-    {configured?(validState?<TelegramWidget bot={process.env.TELEGRAM_LOGIN_BOT_NAME!} authUrl={baseUrl()+'/api/auth/telegram?state='+state}/>:<Link className="btn btn-dark" href="/api/auth/start">Продолжить с Telegram</Link>):<p role="status">Вход скоро откроется. Подключение сервиса ещё не завершено.</p>}
-    <p>Вход привязывает аккаунт к одному браузеру. Для смены браузера обратитесь в поддержку.</p><p>Продолжая, вы принимаете <Link href="/terms">правила доступа</Link> и знакомитесь с <Link href="/privacy">обработкой данных</Link>.</p></section></>;
+import { TelegramCodeForm } from '@/components/actions';
+import { configuredTelegramBot } from '@/lib/telegram-access';
+
+export const dynamic='force-dynamic';
+
+export default function Page() {
+  const bot=configuredTelegramBot();
+  return <><PageHead title="Добро пожаловать в JUICY" description="Доступ в Академию открывается по приглашению."/>
+    {bot?<section className="info-box login-box">
+      <h2>У меня есть приглашение</h2>
+      <p>Получите код у бота и введите его здесь.</p>
+      <a className="btn btn-outline" href={`https://t.me/${bot}?start=login`} target="_blank" rel="noopener noreferrer">Получить код в Telegram</a>
+      <TelegramCodeForm/>
+      <p>Аккаунт привязывается к одному браузеру. Для смены браузера обратитесь в поддержку.</p>
+      <h2>Запросить приглашение</h2>
+      <p>Поделитесь именем и номером телефона в боте. Команда JUICY рассмотрит заявку и ответит в Telegram.</p>
+      <a className="btn btn-outline" href={`https://t.me/${bot}?start=request`} target="_blank" rel="noopener noreferrer">Запросить приглашение в Telegram</a>
+    </section>:<p className="info-box" role="status">Вход и заявки будут доступны после подключения бота.</p>}
+    <p><Link href="/terms">Правила доступа</Link> и <Link href="/privacy">обработка данных</Link>.</p>
+  </>;
 }

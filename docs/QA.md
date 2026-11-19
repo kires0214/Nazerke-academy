@@ -15,7 +15,7 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Student role | Cannot read admin or other user's progress/support, even by URL |
 | Ambassador role | Student denied protected ambassador lessons; ambassador allowed |
 | Techadmin RBAC | Techadmin grant updates audited; normal admin cannot self-elevate |
-| Telegram login | Valid signed data allowed; forged/stale/replayed auth denied |
+| Telegram invite and login | Verify private self-contact, staff-only approval, no account before invite, forged webhook rejection and expired/replayed code rejection |
 | Approval | Pending/blocked users do not receive private content/signed media |
 | Device | 2 parallel first logins allow 1; second browser denied; admin reset audited |
 | Logout | Revoked token denied immediately for API and private media |

@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { withDb, type Db } from './db';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
-import { audit, canLearn, createLogin, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
+import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
 import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
 import { updateAccount } from './accounts';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
 import { verifyMuxWebhook } from './mux';
 import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
+import { configuredTelegramBot, decideRegistration, loginCode, redeemTelegramCode, requestDecision } from './telegram-access';
 
 type Runner = <T>(work:(db:Db)=>Promise<T>)=>Promise<T>;
 const uuid=(value:string)=>z.uuid().parse(value);
@@ -32,26 +33,16 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       const result=await run(async db=>processTelegramUpdate(db,await jsonBody(req)));
       return apiResponse(result);
     }
-    if(key==='auth/start' && method==='GET') {
-      check(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_LOGIN_BOT_NAME,503,'TELEGRAM_NOT_CONFIGURED');
-      const state=token();
-      const response=NextResponse.redirect(baseUrl()+'/login?state='+state);
-      response.headers.set('Cache-Control','no-store');
-      response.cookies.set(cookieNames().state,state,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:600});
-      return response;
-    }
-    if(key==='auth/telegram' && method==='GET') {
-      const state=url.searchParams.get('state')??'';
-      check(state.length===43 && equal(state,req.cookies.get(cookieNames().state)?.value??''),403,'LOGIN_STATE_INVALID');
-      // Commit request-rate counters even for forged callbacks.
+    if(key==='auth/start' && method==='GET') return NextResponse.redirect(baseUrl()+'/login');
+    if(key==='auth/telegram' && method==='GET') throw new AppError(410,'TELEGRAM_USE_BOT');
+    if(key==='auth/telegram' && method==='POST') {
+      sameOrigin(req);
+      check(configuredTelegramBot(),503,'TELEGRAM_NOT_CONFIGURED');
+      const {code}=z.object({code:loginCode}).strict().parse(await jsonBody(req));
       const ip=process.env.VERCEL ? req.headers.get('x-real-ip')??'unknown' : 'local';
       await run(db=>rateLimit(db,'login-ip:'+hash(ip),20,300));
-      const fields:Record<string,string>={};
-      for(const [k,v] of url.searchParams) { if(k==='state') continue; check(!(k in fields),400,'DUPLICATE_LOGIN_FIELD'); fields[k]=v; }
-      const identity=verifyTelegram(fields,process.env.TELEGRAM_BOT_TOKEN??'');
-      const result=await run(db=>createLogin(db,identity,requestTokens(req).device));
-      const response=NextResponse.redirect(baseUrl()+(result.status==='approved'?'/academy':'/access'));
-      response.headers.set('Cache-Control','private, no-store'); response.headers.set('Referrer-Policy','no-referrer');
+      const result=await run(db=>redeemTelegramCode(db,code,requestTokens(req).device));
+      const response=apiResponse({ok:true});
       cookiesForLogin(response,result.sessionToken,result.deviceToken); return response;
     }
     if(key!=='content')check(requestTokens(req).session&&requestTokens(req).device,401,'LOGIN_REQUIRED');
@@ -114,6 +105,10 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         return (await db.query("SELECT id,display_name,status,role,created_at FROM users WHERE $1::boolean OR role IN ('student','ambassador') ORDER BY created_at DESC LIMIT 200",[p.role==='techadmin'])).rows;
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
+      if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {
+        const {action}=requestDecision.parse(await jsonBody(req));
+        await decideRegistration(db,p,uuid(path[2]),action);return {ok:true};
+      }
       if(path[0]==='studio'&&path[1]==='devices'&&path.length===3&&method==='POST') {await resetDevice(db,p,uuid(path[2]));return {ok:true};}
       if(key==='studio/audit'&&method==='GET') {
         check(p.role==='techadmin',403,'TECHADMIN_ONLY');

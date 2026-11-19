@@ -2,7 +2,7 @@
 
 P0 Bootstrap now: verify HEAD and Issue #1; run static-demo asset sync + contract check; compare v3.2 pages and responsive visuals to current Vercel; create feature branch. Scaffold lean Next.js TypeScript without changing existing PROD; migrations for Neon DEV; DEV build+smoke. Output SHA/PR evidence.
 
-P1 First real user: verified Telegram login, pending→approved, secure cookie session, one enrolled browser, server RBAC/grants, Tech Admin permissions. Negative and concurrency tests. No fake client roles.
+P1 First real user: Telegram contact request, staff invitation, single-use code and cookie session, one enrolled browser, server RBAC and Tech Admin permissions. Exercise denial and concurrency cases.
 
 P2 Real content: CMS sections/courses/modules/lessons/recipes/attachments/collections; media catalog, publish/preview/hide; cross-links one recipe per ID. Populate at least one real Kenwood lesson and recipe. Search/filter, favorites, progress.
 

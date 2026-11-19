@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ZodError } from 'zod';
 import { AppError, check } from './errors';
 import type { Tokens } from './security';
-export const cookieNames=() => process.env.NODE_ENV==='production' ? {session:'__Host-juicy_session',device:'__Host-juicy_device',state:'__Host-juicy_login_state'} : {session:'juicy_session',device:'juicy_device',state:'juicy_login_state'};
+export const cookieNames=() => process.env.NODE_ENV==='production' ? {session:'__Host-juicy_session',device:'__Host-juicy_device'} : {session:'juicy_session',device:'juicy_device'};
 export function baseUrl() {
   check(process.env.APP_BASE_URL,503,'APP_BASE_URL_REQUIRED');
   const url=new URL(process.env.APP_BASE_URL);
@@ -14,7 +14,6 @@ export function cookiesForLogin(response:NextResponse,session:string,device:stri
   const names=cookieNames(), options={httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax' as const,path:'/'};
   response.cookies.set(names.session,session,{...options,maxAge:7*86400});
   response.cookies.set(names.device,device,{...options,maxAge:365*86400});
-  response.cookies.set(names.state,'',{...options,maxAge:0});
 }
 export function sameOrigin(req:NextRequest) {
   check(req.headers.get('origin')===baseUrl(),403,'ORIGIN_DENIED');

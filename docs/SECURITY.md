@@ -6,7 +6,7 @@ Five roles: guest public; student approved content; ambassador student plus sepa
 
 Core grants: content.edit, content.publish, content.delete, sections.manage, courses.manage, recipes.manage, media.upload, events.manage, support.read/respond, students.read/approve/block, devices.reset, ambassadors.assign, announcements.manage, analytics.read. Techadmin-only: admin/grants/system security. No direct client role switcher in PROD.
 
-Telegram login: validate official signed data/hash and timestamp expiration, origin/bot identity and replay semantics. Server generates session only after validation; first-time status pending, never auto-entitled.
+Telegram access: accept private-chat updates only after verifying the configured webhook secret. Accept only the sender's own contact for an invitation request. Store the name and phone in the separate review queue and clear the phone at decision. Create an account only after staff grants the invitation. Issue a random five-minute code to an approved Telegram identity and keep its hash in PostgreSQL. Redeem it once through a same-origin POST under the existing browser and session rules.
 
 One enrolled browser + one active session, transactions with per-user lock/unique DB constraint. Cookie Secure+HttpOnly+SameSite, random token hash in DB. Check session revocation/expiry on protected API. Second browser must be denied or go through explicit admin reset; multiple tabs okay. Deleting cookie is not a free new-device enrollment. Do not advertise unbreakable physical-device binding/fingerprints.
 
