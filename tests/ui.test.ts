@@ -22,7 +22,10 @@ test('public, academy and Studio shells each have one header; student has one pr
   const publicHtml=renderToStaticMarkup(createElement(PublicShell,{children:'Public'}));
   const academy=renderToStaticMarkup(createElement(AcademyShell,{user:syntheticPrincipal('student'),children:'Academy'}));
   const studio=renderToStaticMarkup(createElement(StudioShell,{user:syntheticPrincipal('techadmin'),children:'Studio'}));
-  for(const html of [publicHtml,academy,studio])assert.equal((html.match(/<header/g)??[]).length,1);
+  for(const html of [publicHtml,academy,studio]){
+    assert.equal((html.match(/<header class="juicy-header"/g)??[]).length,1);
+    assert.match(html,/class="header-control header-primary"/);
+  }
   for(const html of [academy,studio])assert.equal((html.match(/>Выйти<\/button>/g)??[]).length,1);
   assert.doesNotMatch(publicHtml,/>Выйти<\/button>/);
   assert.match(publicHtml,/<a[^>]+href="\/login"[^>]*>Войти<\/a>/);
@@ -33,8 +36,9 @@ test('public, academy and Studio shells each have one header; student has one pr
   assert.doesNotMatch(signedIn,/<a[^>]+href="\/login"[^>]*>Войти<\/a>/);
   assert.equal((academy.match(/aria-label="Мой профиль"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
   assert.equal(academy.includes('by Nazerke'),false);assert.match(academy,/Мобильная навигация/);
-  assert.match(academy,/href="\/academy">Главная<\/a><a href="\/academy\/offers">Акции/);
-  assert.match(publicHtml,/href="\/">Главная<\/a><a href="\/offers">Акции/);
+  assert.match(academy,/href="\/academy">Главная<\/a><a[^>]+href="\/academy\/offers">Акции/);
+  assert.match(publicHtml,/href="\/">Главная<\/a><a[^>]+href="\/offers">Акции/);
+  for(const html of [publicHtml,academy])assert.match(html,/aria-controls="header-navigation"/);
   assert.match(academy,/<footer[^>]*>.*href="\/academy\/contacts"/);
   for(const path of ['recipes','materials','club'])assert.ok(!academy.includes('href="/academy/'+path+'"'));
   assert.equal(publicHtml.includes('JUICY Studio'),false);
@@ -48,9 +52,7 @@ test('Academy section heroes have separate images and tabs switch subgroups in p
   const destinations=academyNavigation('ru').slice(1,-1).map(link=>link.href);
   assert.deepEqual([...cards.matchAll(/href="([^"]+)"/g)].map(match=>match[1]),destinations);
   const images=[...cards.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match=>match[1]);
-  assert.equal(new Set(images).size,destinations.length-1);
-  assert.ok(images.includes('/academy-covers/offers.webp'));
-  assert.ok(images.includes('/academy-covers/kenwood.webp'));
+  assert.deepEqual(images,destinations.map(href=>href.replace('/academy/','/academy-covers/')+'.webp'));
   assert.match(cards,/academy-hero-coming-soon/);
   assert.doesNotMatch(cards,/Контакты/);
   for(const section of ['kenwood','braun','ambassador'] as const){

@@ -13,7 +13,7 @@ export function ReaderLanguageProvider({locale,children}:{locale:SiteLocale;chil
 export function LanguageSwitch({locale}:{locale:SiteLocale}) {
   const next=locale==='en'?'ru':'en';
   const label=next==='en'?'Switch to English':'Переключить на русский';
-  return <button type="button" className="language-switch" aria-label={label} title={label} lang={next} onClick={()=>{
+  return <button type="button" className="header-control header-square language-switch" aria-label={label} title={label} lang={next} onClick={()=>{
     document.cookie=`${localeCookie}=${next}; Path=/; Max-Age=31536000; SameSite=Lax${location.protocol==='https:'?'; Secure':''}`;
     location.reload();
   }}>{next.toUpperCase()}</button>;

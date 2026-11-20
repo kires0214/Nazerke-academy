@@ -58,11 +58,11 @@ export function ActionButton({url,payload,label,method='POST',goTo,confirm,varia
   }}>{pending?t('Сохраняем…','Saving…'):label}</button><span role="status">{status}</span></span>;
 }
 
-export function LogoutButton() {
+export function LogoutButton({header=false}:{header?:boolean}={}) {
   const locale=useReaderLocale(),t=copy(locale);
   const [pending,setPending]=useState(false),[status,setStatus]=useState('');
   return <div className="header-logout">
-    <button type="button" className="btn btn-outline" disabled={pending} onClick={async()=>{
+    <button type="button" className={header?'header-control':'btn btn-outline'} disabled={pending} onClick={async()=>{
       if(pending)return;
       setPending(true);
       setStatus('');

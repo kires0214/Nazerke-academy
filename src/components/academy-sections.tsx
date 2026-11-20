@@ -4,13 +4,13 @@ import type { CatalogNode } from '@/lib/content';
 import { eventTimeZone } from '@/lib/event-time';
 import { copy, type SiteLocale } from '@/lib/locale';
 import { academyNavigation } from '@/lib/site-navigation';
-const images:Record<string,string|null>={
+const images:Record<string,string>={
   offers:'/academy-covers/offers.webp',
   kenwood:'/academy-covers/kenwood.webp',
-  braun:'/assets/smoothie.webp',
-  ambassadors:'/assets/nazerke-ambassador.avif',
-  events:'/assets/pasta.webp',
-  'coming-soon':null,
+  braun:'/academy-covers/braun.webp',
+  ambassadors:'/academy-covers/ambassadors.webp',
+  events:'/academy-covers/events.webp',
+  'coming-soon':'/academy-covers/coming-soon.webp',
 };
 const tracks:Record<string,LearningTrack>={kenwood:'kenwood',braun:'braun',ambassadors:'ambassador'};
 
@@ -44,8 +44,7 @@ export function AcademySections({locale,catalog,all=false}:{locale:SiteLocale;ca
         courses.length===0?t('Курсы готовятся','Courses are in preparation'):
         t(`Доступно курсов: ${available} из ${courses.length}`,`Courses available: ${available} of ${courses.length}`);
       return <Link className={`academy-hero academy-hero-${section}`} href={href} key={href}>
-        <div className="academy-hero-art">{images[section]?<img src={images[section]} alt="" loading="lazy" decoding="async"/>:
-          <span className="academy-hero-clock" aria-hidden="true"/>}</div>
+        <div className="academy-hero-art"><img src={images[section]} alt="" width={1140} height={380} loading="lazy" decoding="async"/></div>
         <div className="academy-hero-body">
           <strong className="academy-hero-title">{label}</strong><p>{descriptions[section]}</p>
           <div className="academy-hero-footer"><span>{detail}</span><span className="academy-hero-arrow" aria-hidden="true">→</span></div>
