@@ -148,3 +148,65 @@ test('Mux deletion verifies upload/asset ownership before deleting and a denied 
     assert.equal((await f.engine.query('SELECT id FROM media WHERE id=$1',[m.id])).rows.length,0);
   }finally{globalThis.fetch=original;restore();await f.close();}
 });
+
+test('saved Studio preview serves only media attached to the requested material and requires content read',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f),tech=await f.account('techadmin'),student=await f.account();
+    const reader=await f.account('admin','approved',[],['content.read']);
+    const uploader=await f.account('admin','approved',[],['media.upload']);
+    const bytes=Buffer.from('synthetic preview bytes');
+    const {rows:[image]}=await f.engine.query<{id:string}>(
+      "INSERT INTO media(kind,provider,state,created_by,mime,bytes) VALUES('image','postgres','ready',$1,'image/png',$2) RETURNING id",
+      [tech.id,bytes]);
+    const create=async (slug:string,mediaIds:string[])=>{
+      const response=await call('studio/content','POST',tech.tokens,{kind:'material',slug,title:slug,mediaIds});
+      assert.equal(response.status,200);
+      return (await response.json()).id as string;
+    };
+    const linked=await create('synthetic-preview-linked',[image.id]);
+    const unrelated=await create('synthetic-preview-unrelated',[]);
+    const path='studio/content/'+linked+'/media/'+image.id+'/file';
+    assert.equal((await call(path)).status,401);
+    for(const actor of [student,uploader])assert.equal((await call(path,'GET',actor.tokens)).status,403);
+    assert.equal((await call('media/'+image.id+'/file','GET',student.tokens)).status,403);
+    assert.equal((await call('studio/content/'+unrelated+'/media/'+image.id+'/file','GET',reader.tokens)).status,404);
+    const allowed=await call(path,'GET',reader.tokens);
+    assert.equal(allowed.status,200);
+    assert.equal(allowed.headers.get('cache-control'),'private, no-store');
+    assert.deepEqual(Buffer.from(await allowed.arrayBuffer()),bytes);
+  }finally{await f.close();}
+});
+
+test('invitation role and grants are assigned atomically and only by qualified staff',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f),tech=await f.account('techadmin');
+    const approver=await f.account('admin','approved',[],['students.approve']);
+    const coordinator=await f.account('admin','approved',[],['students.approve','ambassadors.assign']);
+    const request=async (telegramId:number)=>{
+      const {rows:[row]}=await f.engine.query<{id:string}>(
+        "INSERT INTO registration_requests(telegram_id,display_name,phone) VALUES($1,'Synthetic invite','7000000') RETURNING id",[telegramId]);
+      return 'studio/registration/'+row.id;
+    };
+    const ambassador=await request(12000001),admin=await request(12000002);
+    const invite=(path:string,t:Tokens,role:string,grants:string[]=[])=>call(path,'POST',t,{action:'invite',role,grants});
+    assert.equal((await invite(ambassador,approver.tokens,'ambassador')).status,403);
+    assert.equal((await invite(admin,coordinator.tokens,'admin',['content.read'])).status,403);
+    assert.equal((await invite(admin,tech.tokens,'techadmin')).status,400);
+    assert.equal((await invite(ambassador,tech.tokens,'ambassador',['audit.read'])).status,400);
+    assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id IN (12000001,12000002)')).rows.length,0);
+
+    assert.equal((await invite(ambassador,coordinator.tokens,'ambassador')).status,200);
+    assert.equal((await invite(admin,tech.tokens,'admin',['content.read','media.upload'])).status,200);
+    const {rows}=await f.engine.query<{id:string;role:string;status:string}>(
+      'SELECT id,role,status FROM users WHERE telegram_id IN (12000001,12000002) ORDER BY telegram_id');
+    assert.deepEqual(rows.map(({role,status})=>[role,status]),[['ambassador','approved'],['admin','approved']]);
+    assert.deepEqual((await f.engine.query('SELECT scope FROM access_entitlements WHERE user_id=$1 ORDER BY scope',[rows[0].id])).rows,
+      [{scope:'academy'},{scope:'ambassador'}]);
+    assert.deepEqual((await f.engine.query('SELECT permission FROM admin_grants WHERE user_id=$1 ORDER BY permission',[rows[1].id])).rows,
+      [{permission:'content.read'},{permission:'media.upload'}]);
+    assert.deepEqual((await f.engine.query("SELECT status,phone FROM registration_requests WHERE telegram_id IN (12000001,12000002)")).rows,
+      [{status:'invited',phone:null},{status:'invited',phone:null}]);
+  }finally{await f.close();}
+});

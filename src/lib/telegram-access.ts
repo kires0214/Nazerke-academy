@@ -5,11 +5,15 @@ import type { Db } from './db';
 import { check } from './errors';
 import { baseUrl } from './http';
 import { telegramSend } from './providers';
-import { audit, createLogin, hash, rateLimit, requireGrant, type Principal } from './security';
+import { audit, createLogin, grants, hash, rateLimit, requireGrant, type Principal } from './security';
 
 const phone = z.string().regex(/^\+?[0-9]{7,15}$/);
 export const loginCode = z.string().trim().regex(/^[A-Za-z0-9_-]{12}$/);
-export const requestDecision = z.object({ action: z.enum(['invite', 'decline']) }).strict();
+export const requestDecision = z.discriminatedUnion('action',[
+  z.object({action:z.literal('invite'),role:z.enum(['student','ambassador','admin']).default('student'),
+    grants:z.array(z.enum(grants)).max(grants.length).default([])}).strict(),
+  z.object({action:z.literal('decline')}).strict(),
+]);
 export const telegramContact = z.object({
   user_id: z.number().int().positive().optional(),
   first_name: z.string().max(120),
@@ -95,8 +99,14 @@ export async function pendingRegistrationRequests(db: Db, actor: Principal) {
     "SELECT id,display_name,phone FROM registration_requests WHERE status='requested' ORDER BY created_at LIMIT 200")).rows;
 }
 
-export async function decideRegistration(db: Db, actor: Principal, id: string, action: 'invite' | 'decline') {
+export async function decideRegistration(db: Db, actor: Principal, id: string, decision:z.infer<typeof requestDecision>) {
   requireGrant(actor, 'students.approve');
+  const {action}=decision;
+  if(action==='invite') {
+    check(decision.role==='admin'||decision.grants.length===0,400,'GRANTS_REQUIRE_ADMIN');
+    if(decision.role==='admin')check(actor.role==='techadmin',403,'TECHADMIN_ONLY');
+    if(decision.role==='ambassador')requireGrant(actor,'ambassadors.assign');
+  }
   const { rows } = await db.query<{ telegram_id: string; display_name: string; status: string }>(
     'SELECT telegram_id,display_name,status FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
   const request = rows[0];
@@ -107,10 +117,12 @@ export async function decideRegistration(db: Db, actor: Principal, id: string, a
       [request.telegram_id, request.display_name])).rows[0];
     check(account, 409, 'ACCOUNT_EXISTS');
     await updateAccount(db, actor, account.id, { action: 'approve' });
+    if(decision.role==='admin')await updateAccount(db,actor,account.id,{action:'staff',role:'admin',grants:decision.grants});
+    if(decision.role==='ambassador')await updateAccount(db,actor,account.id,{action:'ambassador',enabled:true});
   }
   await db.query('UPDATE registration_requests SET status=$2,phone=NULL,reviewed_at=now() WHERE id=$1',
     [id, action === 'invite' ? 'invited' : 'declined']);
-  await audit(db, actor.id, 'registration.' + action, id);
+  await audit(db, actor.id, 'registration.' + action, id,action==='invite'?{role:decision.role}:{});
   const notice = action === 'invite'
     ? 'Команда JUICY пригласила вас в Академию. Откройте ' + baseUrl() + '/login и нажмите «Получить код в Telegram».'
     : 'Команда JUICY рассмотрела вашу заявку. Сейчас мы не можем открыть доступ.';

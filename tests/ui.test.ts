@@ -13,6 +13,8 @@ test('public, academy and Studio shells each have one header; student has one pr
   const academy=renderToStaticMarkup(createElement(AcademyShell,{user:syntheticPrincipal('student'),children:'Academy'}));
   const studio=renderToStaticMarkup(createElement(StudioShell,{user:syntheticPrincipal('techadmin'),children:'Studio'}));
   for(const html of [publicHtml,academy,studio])assert.equal((html.match(/<header/g)??[]).length,1);
+  for(const html of [academy,studio])assert.equal((html.match(/>Выйти<\/button>/g)??[]).length,1);
+  assert.doesNotMatch(publicHtml,/>Выйти<\/button>/);
   assert.equal((academy.match(/aria-label="Мой профиль"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
   assert.equal(academy.includes('by Nazerke'),false);assert.match(academy,/Мобильная навигация/);
   assert.equal(publicHtml.includes('JUICY Studio'),false);

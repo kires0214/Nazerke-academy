@@ -11,9 +11,9 @@ export function contentHref(node:Pick<Content,'kind'|'slug'>) {
   const route:Record<string,string>={lesson:'lessons',attachment:'attachments',recipe:'recipes',collection:'collections',course:'courses',post:'news',material:'materials',event:'events',section:'sections',module:'modules'};
   return '/academy/'+(route[node.kind]??'content')+'/'+node.slug;
 }
-export function ContentCards({nodes}:{nodes:Content[]}) {
+export function ContentCards({nodes,linkFor=contentHref}:{nodes:Content[];linkFor?:(node:Content)=>string}) {
   if(!nodes.length) return <p className="empty">Материалы появятся после публикации.</p>;
-  return <div className="cards">{nodes.map(node=><Link className="card" key={node.id} href={contentHref(node)}>
+  return <div className="cards">{nodes.map(node=><Link className="card" key={node.id} href={linkFor(node)}>
     {node.cover?<div className={'card-img'+(node.kind==='attachment'?' product':'')}><Photo name={node.cover} alt={node.title}/></div>:null}
     <div className="card-body"><span className="meta">{node.language}{node.data.duration?` · ${node.data.duration} мин`:''}</span><h3>{node.title}</h3><p>{node.description}</p><span className="card-action">Открыть →</span></div>
   </Link>)}</div>;

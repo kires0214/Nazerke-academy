@@ -118,8 +118,8 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
       if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {
-        const {action}=requestDecision.parse(await jsonBody(req));
-        await decideRegistration(db,p,uuid(path[2]),action);return {ok:true};
+        const decision=requestDecision.parse(await jsonBody(req));
+        await decideRegistration(db,p,uuid(path[2]),decision);return {ok:true};
       }
       if(path[0]==='studio'&&path[1]==='devices'&&path.length===3&&method==='POST') {await resetDevice(db,p,uuid(path[2]));return {ok:true};}
       if(key==='studio/audit'&&method==='GET') {
@@ -145,22 +145,22 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       if(path[0]==='studio'&&path[1]==='media'&&path.length===4&&path[3]==='refresh'&&method==='POST') {
         return refreshVideo(db,p,uuid(path[2]));
       }
+      if(path[0]==='studio'&&path[1]==='content'&&path[3]==='media'&&path.length===6&&method==='GET') {
+        requireGrant(p,'content.read');
+        const contentId=uuid(path[2]),id=uuid(path[4]);
+        const linked=(await db.query('SELECT 1 FROM content_media WHERE content_id=$1 AND media_id=$2',[contentId,id])).rows[0];
+        check(linked,404,'MEDIA_NOT_FOUND');
+        return serveMedia(db,req,p,id,path[5],'/api/studio/content/'+contentId+'/media');
+      }
       if(path[0]==='media'&&path.length===3&&method==='GET') {
         const id=uuid(path[1]);
         const nodes=await listContent(db,p);
         const links=(await db.query<{content_id:string}>('SELECT content_id FROM content_media WHERE media_id=$1',[id])).rows;
         check(links.some(l=>nodes.some(n=>n.id===l.content_id)),403,'MEDIA_ACCESS_DENIED');
-        const media=(await db.query<{id:string;kind:string;provider:string;provider_id:string;mux_upload_id:string;mux_playback_id:string;mux_terminal:boolean;state:string;mime:string;bytes:Buffer}>('SELECT id,kind,provider,provider_id,mux_upload_id,mux_playback_id,mux_terminal,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
-        check(media?.state==='ready',409,'MEDIA_NOT_READY');
         if(path[2]==='playback'||path[2]==='access') {
           check(canLearn(p,'academy'),403,'MEDIA_ACCESS_DENIED');
-          check(media.kind==='video'&&media.provider==='mux'&&!media.mux_terminal,409,'MUX_VIDEO_REQUIRED');
-          await rateLimit(db,'playback:'+p.id,20);
-          if(path[2]==='access')return {authorized:true};
-          return authorizedMuxPlayback(db,media,requestTokens(req).session!);
         }
-        if(path[2]==='download') {check(media.kind==='document',400,'DOCUMENT_REQUIRED');const expires=Math.floor(Date.now()/1000)+120;const signature=downloadSignature(id,requestTokens(req).session!,expires);return {url:`/api/media/${id}/file?expires=${expires}&signature=${signature}`};}
-        if(path[2]==='file') {check(media.kind!=='video',400,'FILE_REQUIRED');if(media.kind==='document')verifyDownload(id,requestTokens(req).session!,Number(url.searchParams.get('expires')),url.searchParams.get('signature')??'');return new NextResponse(new Uint8Array(media.bytes),{headers:{'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`${media.kind==='document'?'attachment':'inline'}; filename="${id}.${media.kind==='document'?'pdf':'img'}"`,'Content-Security-Policy':"default-src 'none'; sandbox"}});}
+        return serveMedia(db,req,p,id,path[2],'/api/media');
       }
       if(path[0]==='events'&&path[2]==='register'&&path.length===3&&method==='POST') {
         // Acquire the exclusive event lock before catalog share locks, avoiding lock-upgrade races.
@@ -185,6 +185,39 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
     });
     return result instanceof NextResponse?result:apiResponse(result);
   } catch(error) {return errorResponse(error);}
+}
+
+async function serveMedia(db:Db,req:NextRequest,user:Principal,id:string,action:string,base:string) {
+  const media=(await db.query<{
+    id:string;kind:string;provider:string;provider_id:string;mux_upload_id:string;mux_playback_id:string;
+    mux_terminal:boolean;state:string;mime:string;bytes:Buffer;
+  }>('SELECT id,kind,provider,provider_id,mux_upload_id,mux_playback_id,mux_terminal,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
+  check(media?.state==='ready',409,'MEDIA_NOT_READY');
+  const session=requestTokens(req).session!;
+  if(action==='playback'||action==='access') {
+    check(media.kind==='video'&&media.provider==='mux'&&!media.mux_terminal,409,'MUX_VIDEO_REQUIRED');
+    await rateLimit(db,'playback:'+user.id,20);
+    if(action==='access')return {authorized:true};
+    return authorizedMuxPlayback(db,media,session);
+  }
+  if(action==='download') {
+    check(media.kind==='document',400,'DOCUMENT_REQUIRED');
+    const expires=Math.floor(Date.now()/1000)+120;
+    const signature=downloadSignature(id,session,expires);
+    return {url:`${base}/${id}/file?expires=${expires}&signature=${signature}`};
+  }
+  if(action==='file') {
+    check(media.kind!=='video',400,'FILE_REQUIRED');
+    const download=media.kind==='document';
+    const query=req.nextUrl.searchParams;
+    if(download)verifyDownload(id,session,Number(query.get('expires')),query.get('signature')??'');
+    return new NextResponse(new Uint8Array(media.bytes),{headers:{
+      'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
+      'Content-Disposition':`${download?'attachment':'inline'}; filename="${id}.${download?'pdf':'img'}"`,
+      'Content-Security-Policy':"default-src 'none'; sandbox",
+    }});
+  }
+  throw new AppError(404,'ROUTE_NOT_FOUND');
 }
 
 async function uploadFile(db:Db,p:Principal,req:NextRequest) {

@@ -26,18 +26,39 @@ export function messageFor(code:string) {
     MEDIA_IN_USE:'Сначала уберите файл из материалов, к которым он прикреплён.',
     MEDIA_UPLOAD_IN_PROGRESS:'Загрузка ещё завершается. Обновите статус и повторите.',
     LEGACY_MEDIA_DELETE_REQUIRED:'Этот файл хранится в прежнем видеосервисе. Обратитесь к Tech Admin.',
+    GRANTS_REQUIRE_ADMIN:'Точечные права можно назначить только администратору.',
+    TECHADMIN_ONLY:'Это действие доступно только Tech Admin.',
   } as Record<string,string>)[code]??'Не удалось выполнить действие. Попробуйте позже или обратитесь в поддержку.';
 }
 export async function apiCall(url:string,payload:unknown,method='POST',signal?:AbortSignal) {
   const response=await fetch(url,{method,headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),credentials:'same-origin',signal});
   const result=await response.json(); if(!response.ok) throw new Error(messageFor(result.error));return result;
 }
-export function ActionButton({url,payload,label,method='POST',goTo,confirm}:{url:string;payload?:unknown;label:string;method?:string;goTo?:string;confirm?:string}) {
+export function ActionButton({url,payload,label,method='POST',goTo,confirm,variant='dark'}:{url:string;payload?:unknown;label:string;method?:string;goTo?:string;confirm?:string;variant?:'dark'|'outline'}) {
   const [pending,setPending]=useState(false),[status,setStatus]=useState(''); const router=useRouter();
-  return <span className="action-control"><button className="btn btn-dark" type="button" disabled={pending} onClick={async()=>{
+  return <span className="action-control"><button className={`btn btn-${variant}`} type="button" disabled={pending} onClick={async()=>{
     if(pending||confirm&&!window.confirm(confirm))return;
     setPending(true);setStatus('');try {const result=await apiCall(url,payload??{},method);setStatus(method==='DELETE'?'Удалено.':result.status==='waitlist'?'Вы в листе ожидания.':'Сохранено.');if(goTo)router.push(goTo);router.refresh();} catch(error){setStatus((error as Error).message);} finally{setPending(false);}
   }}>{pending?'Сохраняем…':label}</button><span role="status">{status}</span></span>;
+}
+
+export function LogoutButton() {
+  const [pending,setPending]=useState(false),[status,setStatus]=useState('');
+  return <div className="header-logout">
+    <button type="button" className="btn btn-outline" disabled={pending} onClick={async()=>{
+      if(pending)return;
+      setPending(true);
+      setStatus('');
+      try{
+        await apiCall('/api/auth/logout',{});
+        window.location.replace('/');
+      }catch(error){
+        setStatus((error as Error).message);
+        setPending(false);
+      }
+    }}>{pending?'Выходим…':'Выйти'}</button>
+    <span role="status">{status}</span>
+  </div>;
 }
 export function TelegramCodeForm() {
   const [status,setStatus]=useState(''),[pending,setPending]=useState(false);
@@ -66,9 +87,9 @@ export function SupportForm({threadId}:{threadId?:string}) {
     <label>Сообщение<textarea name="body" rows={4} maxLength={3900} required/></label><button className="btn btn-dark" disabled={pending}>{pending?'Отправляем…':'Отправить'}</button><p role="status">{status}</p>
   </form>;
 }
-export function DownloadButton({mediaId}:{mediaId:string}) {
+export function DownloadButton({mediaId,apiBase='/api/media'}:{mediaId:string;apiBase?:string}) {
   const [status,setStatus]=useState('');return <span className="action-control"><button className="btn btn-outline" onClick={async()=>{
-    try {const response=await fetch(`/api/media/${mediaId}/download`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(messageFor(result.error));window.location.assign(result.url);}
+    try {const response=await fetch(`${apiBase}/${mediaId}/download`,{cache:'no-store'});const result=await response.json();if(!response.ok)throw new Error(messageFor(result.error));window.location.assign(result.url);}
     catch(error){setStatus((error as Error).message);}
   }}>Скачать материал PDF</button><span role="status">{status}</span></span>;
 }

@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ContentCards,PageHead,Photo,contentHref } from '@/components/cards';
-import { ActionButton,CityInterestForm,SupportForm } from '@/components/actions';
+import { CityInterestForm,SupportForm } from '@/components/actions';
 import { academyData,pageTokens } from '@/lib/pages';
 import { filterContent } from '@/lib/content';
 import { withDb } from '@/lib/db';
@@ -15,7 +15,7 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
     return <><PageHead title="Kenwood с нуля" description="Знакомимся с машиной шаг за шагом."/><div className="course-steps">{lessons.map((n,i)=><Link href={contentHref(n)} className="step" key={n.id}><span className="step-num">{progress.some(p=>p.lesson_id===n.id&&p.completed_at)?'✓':i+1}</span><div className="step-body"><strong>{n.title}</strong><small>{n.description} · {n.language}</small></div></Link>)}</div>{!lessons.length?<p className="empty">Уроки появятся после публикации.</p>:null}</>;
   }
   if(section==='ambassadors') return <><section className="academy-hero"><div className="copy"><span className="eyebrow">Отдельная программа</span><h1>Школа<br/><em>амбассадоров JUICY</em></h1><p>Продуктовая экспертиза, личный бренд, этичное продвижение, практика и наставничество.</p></div><div className="amb-photo"><Photo name="nazerke-ambassador.avif" alt="Назерке — школа амбассадоров"/></div></section><section className="section">{user.role==='ambassador'||user.role==='techadmin'?<ContentCards nodes={nodes.filter(n=>n.kind==='course'&&n.audience==='ambassador')}/>:<p className="info-box">Доступ к программе назначает команда. Обучение не означает официальный статус представителя бренда.</p>}</section></>;
-  if(section==='profile') return <><PageHead title={user.display_name}/><div className="info-box"><h2>Мой прогресс</h2><p>Завершено уроков: {progress.filter(p=>p.completed_at).length}</p>{progress.map(p=>{const n=nodes.find(n=>n.id===p.lesson_id);return n?<p key={p.lesson_id}><Link href={contentHref(n)}>{n.title} {p.completed_at?'✓':`· ${p.position_seconds} сек`}</Link></p>:null;})}</div><h2>Избранное</h2><ContentCards nodes={nodes.filter(n=>favorites.includes(n.id))}/><div className="info-box"><p>Сменить зарегистрированный браузер можно через поддержку JUICY.</p><ActionButton url="/api/auth/logout" label="Выйти" goTo="/"/></div></>;
+  if(section==='profile') return <><PageHead title={user.display_name}/><div className="info-box"><h2>Мой прогресс</h2><p>Завершено уроков: {progress.filter(p=>p.completed_at).length}</p>{progress.map(p=>{const n=nodes.find(n=>n.id===p.lesson_id);return n?<p key={p.lesson_id}><Link href={contentHref(n)}>{n.title} {p.completed_at?'✓':`· ${p.position_seconds} сек`}</Link></p>:null;})}</div><h2>Избранное</h2><ContentCards nodes={nodes.filter(n=>favorites.includes(n.id))}/><div className="info-box"><p>Сменить зарегистрированный браузер можно через поддержку JUICY.</p></div></>;
   if(section==='more') return <><PageHead title="Ещё в JUICY"/><nav className="course-steps">{[['Материалы','materials'],['JUICY Club и поддержка','club'],['Подборки рецептов','collections'],['Новости','news']].map(([label,href])=><Link className="step" key={href} href={'/academy/'+href}>{label} →</Link>)}</nav></>;
   if(section==='club') {
     const tokens=await pageTokens();const history=await withDb(async db=>supportHistory(db,await principal(db,tokens)));

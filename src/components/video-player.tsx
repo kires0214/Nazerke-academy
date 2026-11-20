@@ -5,14 +5,14 @@ import {leaseNeedsRenewal,refreshMuxRequest,replaceNativeSource,validateLease,ty
 import {messageFor} from './actions';
 
 class PlaybackError extends Error {constructor(public status:number,code:string){super(messageFor(code));}}
-export function VideoPlayer({mediaId}:{mediaId:string}) {
+export function VideoPlayer({mediaId,apiBase='/api/media'}:{mediaId:string;apiBase?:string}) {
   const videoRef=useRef<HTMLVideoElement>(null),startRef=useRef<()=>Promise<void>>(async()=>{});
   const [opened,setOpened]=useState(false),[pending,setPending]=useState(false),[status,setStatus]=useState('');
   useEffect(()=>{
     const video=videoRef.current!;const abort=new AbortController();
     let hls:Hls|null=null,lease:PlaybackLease|null=null,receivedAt=0,inFlight:Promise<void>|null=null,blocked=false,epoch=0,recovery=false;
     async function request(path:string) {
-      const response=await fetch('/api/media/'+mediaId+'/'+path,{cache:'no-store',credentials:'same-origin',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});
+      const response=await fetch(apiBase+'/'+mediaId+'/'+path,{cache:'no-store',credentials:'same-origin',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});
       const value=await response.json();if(!response.ok)throw new PlaybackError(response.status,value.error);return value;
     }
     function failure(error:unknown) {
@@ -69,7 +69,7 @@ export function VideoPlayer({mediaId}:{mediaId:string}) {
       abort.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);video.removeEventListener('play',onPlay);
       hls?.destroy();video.pause();video.removeAttribute('src');video.load();lease=null;startRef.current=async()=>{};
     };
-  },[mediaId]);
+  },[mediaId,apiBase]);
   return <div className="video-block">
     <video ref={videoRef} hidden={!opened} controls playsInline preload="none" aria-label="Учебное видео JUICY"/>
     <button type="button" className="btn btn-dark" disabled={pending} onClick={()=>void startRef.current()}>{pending?'Открываем…':opened?'Продолжить':'Смотреть видео'}</button>

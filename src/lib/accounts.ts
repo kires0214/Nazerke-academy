@@ -6,7 +6,7 @@ import { audit, grants, requireGrant, type Principal } from './security';
 export const accountSchema = z.discriminatedUnion('action',[
   z.object({action:z.literal('approve')}).strict(), z.object({action:z.literal('block')}).strict(), z.object({action:z.literal('unblock')}).strict(),
   z.object({action:z.literal('ambassador'),enabled:z.boolean()}).strict(),
-  z.object({action:z.literal('staff'),role:z.enum(['student','admin']),grants:z.array(z.enum(grants)).max(grants.length)}).strict(),
+  z.object({action:z.literal('staff'),role:z.enum(['student','ambassador','admin']),grants:z.array(z.enum(grants)).max(grants.length)}).strict(),
   z.object({action:z.literal('learning'),enabled:z.boolean()}).strict(),
 ]);
 export async function updateAccount(db:Db,actor:Principal,userId:string,raw:unknown) {
@@ -33,10 +33,13 @@ export async function updateAccount(db:Db,actor:Principal,userId:string,raw:unkn
     await db.query("UPDATE users SET status=CASE WHEN approved_at IS NULL THEN 'pending' ELSE 'approved' END WHERE id=$1",[userId]);
   }
   if(input.action==='staff') {
+    check(input.role==='admin'||input.grants.length===0,400,'GRANTS_REQUIRE_ADMIN');
+    if(input.role==='ambassador')check(target.status==='approved',409,'APPROVED_LEARNER_REQUIRED');
     await db.query('UPDATE users SET role=$2 WHERE id=$1',[userId,input.role]);
     await db.query('DELETE FROM admin_grants WHERE user_id=$1',[userId]);
     await db.query('DELETE FROM access_entitlements WHERE user_id=$1',[userId]);
     if(input.role==='admin') for(const grant of new Set(input.grants)) await db.query('INSERT INTO admin_grants(user_id,permission,granted_by) VALUES($1,$2,$3)',[userId,grant,actor.id]);
+    if(input.role==='ambassador')await db.query("INSERT INTO access_entitlements(user_id,scope,granted_by) VALUES ($1,'academy',$2),($1,'ambassador',$2)",[userId,actor.id]);
   }
   if(input.action==='ambassador') {
     check(['student','ambassador'].includes(target.role)&&target.status==='approved',409,'APPROVED_LEARNER_REQUIRED');

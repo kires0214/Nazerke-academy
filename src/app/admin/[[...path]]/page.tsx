@@ -1,9 +1,11 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CmsEditor,MediaUpload } from '@/components/cms-editor';
-import { StaffControls } from '@/components/staff-controls';
+import { RegistrationControls,StaffControls } from '@/components/staff-controls';
 import { ActionButton,SupportForm } from '@/components/actions';
-import { RichText } from '@/components/cards';
+import { ContentCards } from '@/components/cards';
+import { ContentPresentation,ContentProgram,EventDetails,type PresentationMedia } from '@/components/content-presentation';
+import { kindLabels,mediaDetail,mediaKindLabels,statusLabels,type StudioKind } from '@/components/studio-labels';
 import { withDb } from '@/lib/db';
 import { pageTokens,studioData } from '@/lib/pages';
 import { hasGrant,isStudioRole,principal } from '@/lib/security';
@@ -22,7 +24,9 @@ const contentSections=[
   {slug:'announcements',label:'Статьи и анонсы',kinds:['post']},
   {slug:'events',label:'Мастер-классы',kinds:['event']},
 ];
-const contentStatuses={draft:'Черновик',published:'Опубликовано',hidden:'Снято с публикации',archived:'В архиве'};
+const accountRoles:Record<string,string>={student:'Ученик',ambassador:'Амбассадор',admin:'Администратор',techadmin:'Tech Admin'};
+const accountStatuses:Record<string,string>={approved:'Допущен',pending:'Ожидает решения',blocked:'Заблокирован'};
+const previewHref=(node:{id:string})=>'/admin/preview/'+node.id;
 export default async function Page({params,searchParams}:{params:Promise<{path?:string[]}>;searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   await studioData();
   const path=(await params).path??[],tokens=await pageTokens();
@@ -32,36 +36,73 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
     if(contentSection) {
       if(!hasGrant(user,'content.read')) return <><h1>JUICY Studio</h1><p>Откройте доступный раздел в меню.</p></>;
       const nodes=await listContent(db,user,true);
-      const displayed=contentSection.kinds.length?nodes.filter(node=>contentSection.kinds.includes(node.kind)):nodes;
+      const query=await searchParams;
+      const term=typeof query.q==='string'?query.q.trim().slice(0,120):'';
+      const status=typeof query.status==='string'&&Object.hasOwn(statusLabels,query.status)?query.status:'';
+      const sectionUrl=contentSection.slug?'/admin/'+contentSection.slug:'/admin';
+      const displayed=nodes.filter(node=>
+        (!contentSection.kinds.length||contentSection.kinds.includes(node.kind))&&(!status||node.status===status)&&
+        (!term||`${node.title} ${node.slug}`.toLocaleLowerCase('ru').includes(term.toLocaleLowerCase('ru'))));
       return <>
-        <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>{hasGrant(user,'content.edit')?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
+        <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>
+          {kinds.some(kind=>canEditContent(user,kind))?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
         <nav className="studio-content-nav" aria-label="Виды материалов">
           {contentSections.map(section=><Link key={section.slug} href={section.slug?'/admin/'+section.slug:'/admin'} aria-current={section===contentSection?'page':undefined}>{section.label}</Link>)}
         </nav>
+        <form className="filters studio-filters" method="GET" action={sectionUrl} key={sectionUrl+term+status}>
+          <label>Название или адрес<input name="q" type="search" defaultValue={term} maxLength={120}/></label>
+          <label>Статус<select name="status" defaultValue={status}><option value="">Все статусы</option>
+            {Object.entries(statusLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
+          <button className="btn btn-dark" type="submit">Найти</button>
+          {term||status?<Link className="btn btn-outline" href={sectionUrl}>Сбросить</Link>:null}
+        </form>
         {displayed.length?<div className="course-steps">{displayed.map(node=>{
           const editable=canEditContent(user,node.kind,node.status);
           return <Link className="step" key={node.id} href={`/admin/${editable?'edit':'preview'}/${node.id}`}>
-            <div className="step-body"><strong>{node.title}</strong><small>{node.language} · {contentStatuses[node.status]} · порядок {node.sort_order}</small></div>
+            <div className="step-body"><strong>{node.title}</strong><small>{kindLabels[node.kind as StudioKind]} · {node.language} · {statusLabels[node.status]}</small></div>
             <span className="small-link">{editable?'Редактировать':'Открыть'}</span>
           </Link>;
-        })}</div>:<p className="empty">В этом разделе пока нет материалов.</p>}
+        })}</div>:<p className="empty">{term||status?'По этому запросу материалы не найдены.':'В этом разделе пока нет материалов.'}</p>}
       </>;
     }
     if(['new','edit','preview'].includes(path[0])) {
       if(!hasGrant(user,'content.read')||path[0]!=='preview'&&!hasGrant(user,'content.edit'))notFound();
       const nodes=await listContent(db,user,true),node=nodes.find(n=>n.id===path[1]);if(path[0]!=='new'&&!node)notFound();
+      const allowedKinds=kinds.filter(kind=>canEditContent(user,kind));
+      if(path[0]==='new'&&!allowedKinds.length)notFound();
       const editable=node?canEditContent(user,node.kind,node.status):hasGrant(user,'content.edit');
       const deleteAction=node&&node.status!=='published'&&canDeleteContent(user,node.kind)?<ActionButton url={'/api/studio/content/'+node.id} method="DELETE" label="Удалить материал" confirm="Удалить материал навсегда?" goTo="/admin"/>:null;
-      if(path[0]==='preview') return <><p className="notes">Предпросмотр Studio · {contentStatuses[node!.status]}</p><h1>{node!.title}</h1><p>{node!.description}</p><RichText text={node!.data.body}/>
-        <div className="detail-actions"><Link className="btn btn-outline" href={editable?'/admin/edit/'+node!.id:'/admin'}>{editable?'Вернуться к редактированию':'Все материалы'}</Link>{deleteAction}</div></>;
+      if(path[0]==='preview'&&node){
+        const media=(await db.query<PresentationMedia>('SELECT m.id,m.kind,m.state FROM media m JOIN content_media l ON l.media_id=m.id WHERE l.content_id=$1 ORDER BY m.created_at',[node.id])).rows;
+        const links=(await db.query<{id:string}>(`SELECT target_id AS id FROM content_links WHERE source_id=$1
+          UNION SELECT source_id FROM content_links WHERE target_id=$1`,[node.id])).rows;
+        const related=nodes.filter(item=>links.some(link=>link.id===item.id));
+        return <>
+          <div className="studio-preview-toolbar">
+            <p>Предпросмотр сохранённой версии · {statusLabels[node.status]}</p>
+            <Link className="btn btn-outline" href={editable?'/admin/edit/'+node.id:'/admin'}>{editable?'Вернуться к редактированию':'Все материалы'}</Link>
+          </div>
+          <article>
+            <ContentPresentation node={node} media={media} apiBase={'/api/studio/content/'+node.id+'/media'}/>
+            {node.kind==='event'?<EventDetails node={node}/>:null}
+            <ContentProgram node={node} nodes={nodes} linkFor={previewHref}/>
+            {related.length?<section className="section"><h2>Связанные материалы</h2><ContentCards nodes={related} linkFor={previewHref}/></section>:null}
+          </article>
+          {deleteAction?<div className="detail-actions">{deleteAction}</div>:null}
+        </>;
+      }
       if(!editable)return <><h1>Редактирование недоступно</h1><p>Для этого материала нужны дополнительные права.</p><Link href={'/admin/preview/'+node!.id}>Открыть предпросмотр</Link></>;
-      const media=(await db.query<{id:string;kind:string;state:string}>('SELECT id,kind,state FROM media ORDER BY created_at DESC LIMIT 200')).rows;
-      const links=node?(await db.query<{target_id:string}>('SELECT target_id FROM content_links WHERE source_id=$1',[node.id])).rows.map(l=>l.target_id):[];
+      const links=node?(await db.query<{target_id:string}>('SELECT target_id FROM content_links WHERE source_id=$1 ORDER BY sort_order',[node.id])).rows.map(l=>l.target_id):[];
       const mediaIds=node?(await db.query<{media_id:string}>('SELECT media_id FROM content_media WHERE content_id=$1',[node.id])).rows.map(l=>l.media_id):[];
+      const media=(await db.query<{id:string;kind:string;state:string;created_at:Date}>(`SELECT id,kind,state,created_at
+        FROM media WHERE id IN (SELECT id FROM media ORDER BY created_at DESC LIMIT 200) OR id=ANY($1::uuid[])
+        ORDER BY created_at DESC`,[mediaIds])).rows.map(file=>({...file,created_at:file.created_at.toISOString()}));
+      const choices=nodes.map(({id,title,slug,kind,status,parent_id,audience})=>({id,title,slug,kind,status,parent_id,audience}));
       return <><p><Link className="small-link" href="/admin">← Все материалы</Link></p><h1>{node?node.title:'Новый материал'}</h1>
-        {node?<p><Link className="btn btn-outline" href={'/admin/preview/'+node.id}>Предпросмотр</Link></p>:null}
-        <CmsEditor key={node?.id??'new'} node={node} nodes={nodes} media={media} links={links} mediaIds={mediaIds}
-          allowedKinds={kinds.filter(kind=>canEditContent(user,kind))} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}/>
+        {node?<p><Link className="btn btn-outline" href={previewHref(node)}>Предпросмотр сохранённой версии</Link></p>:null}
+        <CmsEditor key={node?.id??'new'} node={node} nodes={choices} media={media} links={links} mediaIds={mediaIds}
+          allowedKinds={allowedKinds} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}
+          canUpload={hasGrant(user,'media.upload')}/>
         {deleteAction?<div className="detail-actions">{deleteAction}</div>:null}
       </>;
     }
@@ -73,26 +114,29 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       return <><h1>Доступ в академию</h1><h2>Заявки на приглашение</h2>
         {requests.length===0?<p>Новых заявок нет.</p>:requests.map(request=><section className="info-box" key={request.id}>
           <h3>{request.display_name}</h3><p>{request.phone}</p>
-          {hasGrant(user,'students.approve')?<div className="detail-actions">
-            <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'invite'}} label="Пригласить"/>
-            <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить"/>
-          </div>:null}
+          {hasGrant(user,'students.approve')?<>
+            <RegistrationControls id={request.id} canAssignAmbassador={hasGrant(user,'ambassadors.assign')} canAssignAdmin={user.role==='techadmin'}/>
+            <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить" variant="outline"
+              confirm="Отклонить заявку на приглашение?"/>
+          </>:null}
         </section>)}
-        <h2>Аккаунты</h2>{users.map(u=><section className="info-box" key={u.id}><h3>{u.display_name}</h3><p>{u.status} · {u.role} · {u.active_session?'Есть активный сеанс':'Нет активного сеанса'}</p>
+        <h2>Аккаунты</h2>{users.map(u=><section className="info-box" key={u.id}><h3>{u.display_name}</h3><p>{accountStatuses[u.status]} · {accountRoles[u.role]} · {u.active_session?'Есть активный сеанс':'Нет активного сеанса'}</p>
         {u.last_login?<p>Последний вход · {new Date(u.last_login).toLocaleString('ru-RU',{timeZone:'Asia/Qyzylorda'})}</p>:null}<div className="detail-actions">
         {u.status==='pending'&&hasGrant(user,'students.approve')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'approve'}} label="Подтвердить доступ"/>:null}
         {u.role!=='techadmin'&&hasGrant(user,'students.block')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:u.status==='blocked'?'unblock':'block'}} label={u.status==='blocked'?'Разблокировать':'Заблокировать'}/>:null}
         {u.role!=='techadmin'&&hasGrant(user,'devices.reset')?<ActionButton url={'/api/studio/devices/'+u.id} label="Сбросить браузер"/>:null}
         {['student','ambassador'].includes(u.role)&&hasGrant(user,'ambassadors.assign')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'ambassador',enabled:u.role!=='ambassador'}} label={u.role==='ambassador'?'Снять допуск амбассадора':'Назначить амбассадором'}/>:null}
         {user.role==='techadmin'&&u.role!=='techadmin'?<><ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'learning',enabled:true}} label="Дать учебный допуск"/><ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'learning',enabled:false}} label="Снять учебный допуск"/></>:null}</div>
-        {user.role==='techadmin'&&u.role!=='techadmin'?<StaffControls id={u.id} role={u.role} currentGrants={allGrants.filter(g=>g.user_id===u.id).map(g=>g.permission)}/>:null}</section>)}</>;
+        {user.role==='techadmin'&&u.role!=='techadmin'?<StaffControls id={u.id} role={u.role} approved={u.status==='approved'}
+          currentGrants={allGrants.filter(g=>g.user_id===u.id).map(g=>g.permission)}/>:null}</section>)}</>;
     }
     if(path[0]==='media') {
       if(!canManageMedia(user))notFound();
-      const media=(await db.query<{id:string;kind:string;state:string;provider:string}>('SELECT id,kind,state,provider FROM media ORDER BY created_at DESC LIMIT 200')).rows;
+      const media=(await db.query<{id:string;kind:string;state:string;provider:string;created_at:Date}>('SELECT id,kind,state,provider,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;
       const canUpload=hasGrant(user,'media.upload'),canDelete=hasGrant(user,'media.delete');
-      return <><h1>Медиа</h1>{canUpload?<MediaUpload/>:null}
-        {media.map(m=><div className="info-box" key={m.id}><p>{m.kind} · {m.state} · {m.id.slice(0,8)}</p>
+      return <><h1>Медиафайлы</h1>{canUpload?<div className="studio-form-section"><h2>Загрузить видео или файл</h2><MediaUpload/></div>:null}
+        {media.map(m=><div className="info-box" key={m.id}><strong>{mediaKindLabels[m.kind]??'Файл'}</strong>
+          <p>{mediaDetail({...m,created_at:m.created_at.toISOString()})}</p>
           <div className="detail-actions">{m.provider==='mux'&&canUpload?<ActionButton url={'/api/studio/media/'+m.id+'/refresh'} label="Обновить статус"/>:null}
             {canDelete&&m.provider!=='stream'?<ActionButton url={'/api/studio/media/'+m.id} method="DELETE" label="Удалить файл" confirm="Удалить этот файл навсегда?"/>:null}</div></div>)}
       </>;
