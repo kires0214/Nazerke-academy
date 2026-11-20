@@ -17,6 +17,7 @@ Store values directly in [Vercel environment settings](https://vercel.com/orch-l
 | Key | Type | Development value / hosted DEV requirement |
 | --- | --- | --- |
 | `APP_ENV` | Config | `DEV` |
+| `TELEGRAM_REQUIRE_ORDER_DETAILS` | Config | Optional. Set `false` on the DEV branch Preview to accept Telegram applications after verified contact and full name. Restore `true` or remove the key, then redeploy DEV to ask for orders again. |
 | `APP_BASE_URL` | Config | Local: `http://localhost:3000`; branch Preview: the verified public HTTPS DEV origin |
 | `DATABASE_URL` | Secret | Separate Neon DEV connection string |
 | `TELEGRAM_BOT_TOKEN` | Secret | Dedicated DEV bot token |

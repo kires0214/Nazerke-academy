@@ -166,7 +166,7 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
             <h2>{request.display_name}</h2><p>{request.phone}</p>
             {request.order_source&&request.order_number?
               <p>{orderSourceLabels[request.order_source]} · заказ <strong>{request.order_number}</strong></p>:
-              <p className="studio-hint">Заявка отправлена до добавления номера заказа.</p>}
+              <p className="studio-hint">Данные заказа не указаны.</p>}
             {canApprove?<details className="studio-disclosure"><summary>Рассмотреть заявку</summary>
               <div><RegistrationControls id={request.id} canAssignTracks={canEditTracks} canAssignAdmin={tech}/>
                 <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить" variant="outline" confirm="Отклонить заявку на приглашение?"/>

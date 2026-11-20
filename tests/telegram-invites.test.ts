@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
 import { hash, principal, type Tokens } from '../src/lib/security';
-import { pendingRegistrationRequests } from '../src/lib/telegram-access';
+import { handleTelegramAccess, pendingRegistrationRequests, registrationRequiresOrder } from '../src/lib/telegram-access';
 import { fixture } from './helpers';
 
 const origin = 'https://dev.juicy.invalid';
@@ -152,6 +152,45 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.notEqual(identity.id,approved.id);
   } finally {
     globalThis.fetch = originalFetch;
+    await f.close();
+  }
+});
+
+test('DEV can submit verified contacts without order details, including an existing draft',async()=>{
+  const savedEnv=process.env.APP_ENV,savedOrder=process.env.TELEGRAM_REQUIRE_ORDER_DETAILS,savedBase=process.env.APP_BASE_URL;
+  const f=await fixture();
+  try{
+    process.env.APP_BASE_URL=origin;
+    process.env.TELEGRAM_REQUIRE_ORDER_DETAILS='false';
+    process.env.APP_ENV='PROD';
+    assert.equal(registrationRequiresOrder(),true);
+    process.env.APP_ENV='DEV';
+    const replies:string[]=[];
+    const send=async (_id:string,message:string)=>{replies.push(message);return String(replies.length);};
+    const run=(id:number,text?:string,details?:typeof contact)=>f.run(db=>handleTelegramAccess(db,String(id),text,details,send));
+    const first=telegramId+42,previous=telegramId+43;
+    await run(first,'/start');
+    assert.doesNotMatch(replies.at(-1)!,/данные заказа/);
+    await run(first,undefined,contact);
+    assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
+    await run(first,undefined,{...contact,user_id:first});
+    await run(first,'Synthetic Learner');
+    assert.match(replies.at(-1)!,/Заявка отправлена/);
+    await f.engine.query(`INSERT INTO telegram_registration_drafts(telegram_id,phone,display_name,order_source,expires_at)
+      VALUES($1,$2,'Synthetic Previous','braun',now()+interval '30 minutes')`,[previous,contact.phone_number]);
+    await run(previous,'/start');
+    assert.match(replies.at(-1)!,/Заявка отправлена/);
+    const {rows}=await f.engine.query<{display_name:string;order_source:string|null;order_number:string|null}>(
+      'SELECT display_name,order_source,order_number FROM registration_requests ORDER BY telegram_id');
+    assert.deepEqual(rows,[
+      {display_name:'Synthetic Learner',order_source:null,order_number:null},
+      {display_name:'Synthetic Previous',order_source:null,order_number:null},
+    ]);
+    assert.equal((await f.engine.query('SELECT id FROM users')).rows.length,0);
+  }finally{
+    if(savedEnv===undefined)delete process.env.APP_ENV;else process.env.APP_ENV=savedEnv;
+    if(savedOrder===undefined)delete process.env.TELEGRAM_REQUIRE_ORDER_DETAILS;else process.env.TELEGRAM_REQUIRE_ORDER_DETAILS=savedOrder;
+    if(savedBase===undefined)delete process.env.APP_BASE_URL;else process.env.APP_BASE_URL=savedBase;
     await f.close();
   }
 });

@@ -34,6 +34,10 @@ export function configuredTelegramBot() {
     process.env.APP_BASE_URL ? bot : undefined;
 }
 
+export function registrationRequiresOrder() {
+  return process.env.APP_ENV!=='DEV'||process.env.TELEGRAM_REQUIRE_ORDER_DETAILS!=='false';
+}
+
 // Called only from the verified private-chat webhook.
 export async function handleTelegramAccess(
   db: Db, telegramId: string, text: string | undefined, contact: z.infer<typeof telegramContact> | undefined,
@@ -41,6 +45,7 @@ export async function handleTelegramAccess(
 ) {
   const login = text === '/start login' || text === '/login';
   const join = text === '/start request' || text === '/request';
+  const requireOrder=registrationRequiresOrder();
   if(!contact&&!text)return false;
 
   await lockTelegramRegistration(db,telegramId);
@@ -76,13 +81,21 @@ export async function handleTelegramAccess(
   const askPhone=async(typed=false)=>{
     const privacyUrl = baseUrl() + '/privacy';
     const intro=typed?'Номер в тексте не подтверждает контакт.':'Академия открыта по приглашениям.';
-    await send(telegramId, intro+' Нажмите «Поделиться номером телефона» под полем сообщения и подтвердите отправку своего контакта. Если кнопка скрыта, откройте клавиатуру бота рядом с полем ввода. Затем бот спросит имя, фамилию и данные заказа. Обработка данных: '+privacyUrl,
+    const steps=requireOrder?'имя, фамилию и данные заказа':'имя и фамилию';
+    await send(telegramId, intro+' Нажмите «Поделиться номером телефона» под полем сообщения и подтвердите отправку своего контакта. Если кнопка скрыта, откройте клавиатуру бота рядом с полем ввода. Затем бот спросит '+steps+'. Обработка данных: '+privacyUrl,
       undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:false,is_persistent:true});
   };
   const askName=()=>send(telegramId,'Введите ваше имя и фамилию одним сообщением.',undefined,{remove_keyboard:true});
   const askSource=()=>send(telegramId,'Где оформлен заказ? Выберите магазин.',undefined,
     {keyboard:[Object.values(orderSourceLabels).map(text=>({text}))],resize_keyboard:true,one_time_keyboard:true});
   const askOrder=()=>send(telegramId,'Введите номер заказа из подтверждения покупки.',undefined,{remove_keyboard:true});
+  const submit=async(name:string,number:string,source:keyof typeof orderSourceLabels|null=null,order:string|null=null)=>{
+    await db.query('INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,$2,$3,$4,$5) ON CONFLICT (telegram_id) DO NOTHING',
+      [telegramId,name,number,source,order]);
+    await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
+    await send(telegramId, 'Заявка отправлена. Если команда одобрит доступ, приглашение придёт в этот чат.',undefined,{remove_keyboard:true});
+    return true;
+  };
   if(text==='/cancel'){
     await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
     await send(telegramId,'Заполнение отменено. Чтобы начать снова, отправьте /request.',undefined,{remove_keyboard:true});
@@ -102,6 +115,7 @@ export async function handleTelegramAccess(
     if(login||join||text==='/start'||text&&!text.startsWith('/')){await askPhone(!login&&!join&&text!=='/start');return true;}
     return false;
   }
+  if(!requireOrder&&draft.display_name)return submit(draft.display_name,draft.phone);
   if(login||join||text==='/start'){
     if(!draft.display_name)await askName();
     else if(!draft.order_source)await askSource();
@@ -112,6 +126,7 @@ export async function handleTelegramAccess(
   if(!draft.display_name){
     const name=fullName.safeParse(value);
     if(!name.success){await askName();return true;}
+    if(!requireOrder)return submit(name.data,draft.phone);
     await db.query("UPDATE telegram_registration_drafts SET display_name=$2,expires_at=now()+interval '30 minutes' WHERE telegram_id=$1",[telegramId,name.data]);
     await askSource();
     return true;
@@ -125,12 +140,7 @@ export async function handleTelegramAccess(
   }
   const order=orderNumber.safeParse(value);
   if(!order.success){await askOrder();return true;}
-  await db.query('INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,$2,$3,$4,$5) ON CONFLICT (telegram_id) DO NOTHING',
-    [telegramId,draft.display_name,draft.phone,draft.order_source,order.data]);
-  await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
-  await send(telegramId, 'Заявка отправлена. Если команда одобрит доступ, приглашение придёт в этот чат.',
-    undefined, { remove_keyboard: true });
-  return true;
+  return submit(draft.display_name,draft.phone,draft.order_source,order.data);
 }
 
 export async function redeemTelegramCode(db: Db, code: string, browserToken?: string) {
