@@ -321,7 +321,7 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
 .academy{padding-top:0}
 .admin{padding-top:20px}
 .page-head h1,.admin-panel>h1,.studio-heading h1{font-size:clamp(26px,3vw,36px);line-height:1.16}
-@media(max-width:1200px){
+@media(max-width:1279px){
   .juicy-header-inner{grid-template:"brand actions menu" / auto minmax(0,1fr) auto}
   .header-menu-toggle{display:inline-flex}
   .header-navigation{
@@ -342,6 +342,10 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
   .header-studio-link{display:none}
   .header-navigation .header-nav-mobile{display:inline-flex}
   .juicy-header .logo strong{font-size:28px}
+}
+@media(max-width:360px){
+  .header-actions{gap:4px}
+  .header-actions .header-control:not(.header-square){padding-inline:7px}
 }
 @media(max-width:780px){
   .academy-heroes{grid-template-columns:repeat(2,minmax(0,1fr))}
