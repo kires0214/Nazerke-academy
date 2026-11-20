@@ -241,10 +241,10 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
   .section-card{min-height:60px;padding:10px 11px}
   .academy-content .academy-welcome h1{font-size:14px}
 }
-.academy-heroes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:14px}
-.academy-hero{display:grid;grid-template-rows:auto 1fr;grid-column:span 2;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--paper);transition:border-color .15s,box-shadow .15s}
+.academy-heroes{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));align-items:start;gap:14px}
+.academy-hero{display:block;grid-column:span 2;min-width:0;overflow:hidden;border:1px solid var(--line);border-radius:14px;background:var(--paper);transition:border-color .15s,box-shadow .15s}
 .academy-hero:hover,.academy-hero:focus-visible{border-color:var(--primary-active);box-shadow:var(--shadow)}
-.academy-hero-art{position:relative;aspect-ratio:3;overflow:hidden;background:#f5e5e8}
+.academy-hero-art{position:relative;width:100%;aspect-ratio:3;overflow:hidden;background:#f5e5e8}
 .academy-hero-art img{position:absolute;inset:0;display:block;width:100%;height:100%;object-fit:contain}
 .academy-hero-body{display:flex;flex-direction:column;gap:6px;padding:12px 14px}
 .academy-hero-title{font:400 clamp(20px,2vw,25px)/1.15 var(--serif);letter-spacing:-.02em}
