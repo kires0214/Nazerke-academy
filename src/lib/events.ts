@@ -1,9 +1,9 @@
-import type { Content } from './content';
+import type { CatalogNode } from './content';
 import type { Db } from './db';
 
-export type CalendarEvent={node:Content;remaining:number|null};
+export type CalendarEvent={node:CatalogNode;remaining:number|null};
 
-export async function eventsWithSeats(db:Db,nodes:Content[]):Promise<CalendarEvent[]> {
+export async function eventsWithSeats(db:Db,nodes:CatalogNode[]):Promise<CalendarEvent[]> {
   const events=nodes.filter(node=>node.kind==='event');
   if(!events.length)return [];
   const {rows}=await db.query<{id:string;booked:number}>(`SELECT event_id AS id,count(*)::int AS booked

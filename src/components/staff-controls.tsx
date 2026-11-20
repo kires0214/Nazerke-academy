@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import type { grants } from '@/lib/catalog';
+import { learningTracks,trackLabels,type LearningTrack,type grants } from '@/lib/catalog';
 import { apiCall } from './actions';
 
 type Permission=typeof grants[number];
@@ -14,14 +14,14 @@ const grantNames:Record<Permission,string>={
   'announcements.manage':'Управлять статьями и анонсами','media.upload':'Загружать файлы и видео',
   'media.delete':'Удалять файлы и видео','students.read':'Открывать список учеников и заявок',
   'students.approve':'Рассматривать заявки и подтверждать доступ','students.block':'Блокировать и разблокировать аккаунты',
-  'devices.reset':'Сбрасывать привязку браузера','ambassadors.assign':'Назначать доступ амбассадорам',
+  'devices.reset':'Сбрасывать привязку браузера','ambassadors.assign':'Выдавать допуск только к Школе Амбассадора','students.tracks':'Назначать допуски Kenwood, Braun и Школы Амбассадора',
   'support.read':'Читать обращения','support.respond':'Отвечать на обращения',
   'analytics.read':'Доступ к аналитике','audit.read':'Открывать журнал действий и посещений',
 };
 const groups=[
   {label:'Контент',items:['content.read','content.edit','content.publish','content.delete','courses.manage','recipes.manage','sections.manage','events.manage','announcements.manage']},
   {label:'Медиа',items:['media.upload','media.delete']},
-  {label:'Пользователи и доступ',items:['students.read','students.approve','students.block','devices.reset','ambassadors.assign']},
+  {label:'Пользователи и доступ',items:['students.read','students.approve','students.block','devices.reset','students.tracks','ambassadors.assign']},
   {label:'Поддержка и журнал',items:['support.read','support.respond','audit.read','analytics.read']},
 ] satisfies {label:string;items:Permission[]}[];
 
@@ -38,10 +38,47 @@ function GrantGroups({selected,setSelected}:{selected:string[];setSelected:(item
   </div>;
 }
 
-export function RegistrationControls({id,canAssignAmbassador,canAssignAdmin}:{
-  id:string;canAssignAmbassador:boolean;canAssignAdmin:boolean;
+export function TrackChoices({selected,onChange,onlyAmbassador=false,joint=false}:{
+  selected:readonly LearningTrack[];onChange:(tracks:LearningTrack[])=>void;onlyAmbassador?:boolean;joint?:boolean;
+}) {
+  return <fieldset className="track-choices">
+    <legend>{joint?'Доступ к материалу':'Учебные допуски'}</legend>
+    {learningTracks.map(track=><label key={track} className="checkbox">
+      <input type="checkbox" checked={selected.includes(track)} disabled={onlyAmbassador&&track!=='ambassador'}
+        onChange={event=>onChange(event.target.checked?[...selected,track]:selected.filter(item=>item!==track))}/>
+      {trackLabels[track]}
+    </label>)}
+  </fieldset>;
+}
+
+export function StudentTrackControls({id,current,onlyAmbassador=false}:{id:string;current:LearningTrack[];onlyAmbassador?:boolean}) {
+  const [tracks,setTracks]=useState(current),[pending,setPending]=useState(false),[status,setStatus]=useState('');
+  const router=useRouter();
+  const changed=tracks.length!==current.length||tracks.some(track=>!current.includes(track));
+  return <details className="studio-disclosure staff-permissions">
+    <summary>Учебные допуски</summary>
+    <form className="form-stack" onSubmit={async event=>{
+      event.preventDefault();
+      if(pending||!changed)return;
+      setPending(true);setStatus('');
+      try{
+        await apiCall('/api/studio/accounts/'+id,onlyAmbassador?{action:'ambassador',enabled:tracks.includes('ambassador')}:{action:'tracks',tracks});
+        setStatus('Допуски сохранены. Ученик войдёт заново.');router.refresh();
+      }catch(error){setStatus((error as Error).message);}
+      finally{setPending(false);}
+    }}>
+      <TrackChoices selected={tracks} onChange={setTracks} onlyAmbassador={onlyAmbassador}/>
+      <button className="btn btn-dark" disabled={pending||!changed}>Сохранить допуски</button>
+      <p role="status">{status}</p>
+    </form>
+  </details>;
+}
+
+export function RegistrationControls({id,canAssignTracks,canAssignAdmin}:{
+  id:string;canAssignTracks:boolean;canAssignAdmin:boolean;
 }) {
   const [role,setRole]=useState('student');
+  const [tracks,setTracks]=useState<LearningTrack[]>(['kenwood']);
   const [selected,setSelected]=useState<string[]>([]);
   const [status,setStatus]=useState('');
   const [pending,setPending]=useState(false);
@@ -52,7 +89,7 @@ export function RegistrationControls({id,canAssignAmbassador,canAssignAdmin}:{
     setPending(true);
     setStatus('');
     try{
-      await apiCall('/api/studio/registration/'+id,{action:'invite',role,grants:role==='admin'?selected:[]});
+      await apiCall('/api/studio/registration/'+id,{action:'invite',role,grants:role==='admin'?selected:[],...(role==='student'&&canAssignTracks?{tracks}:{})});
       setStatus('Приглашение сохранено.');
       router.refresh();
     }catch(error){setStatus((error as Error).message);}
@@ -60,20 +97,19 @@ export function RegistrationControls({id,canAssignAmbassador,canAssignAdmin}:{
   }}>
     <label>Роль при приглашении<select name="inviteRole" value={role} onChange={event=>setRole(event.target.value)}>
       <option value="student">Ученик</option>
-      {canAssignAmbassador?<option value="ambassador">Амбассадор</option>:null}
       {canAssignAdmin?<option value="admin">Администратор</option>:null}
     </select></label>
     {role==='admin'?<>
       <GrantGroups selected={selected} setSelected={setSelected}/>
       <p className="studio-hint">Учебный допуск администратору можно выдать отдельно.</p>
     </>:null}
-    {role==='ambassador'?<p className="studio-hint">Откроются Академия и программа амбассадоров.</p>:null}
+    {role==='student'&&canAssignTracks?<TrackChoices selected={tracks} onChange={setTracks}/>:null}
     <button type="submit" className="btn btn-dark" disabled={pending}>{pending?'Сохраняем…':'Пригласить'}</button>
     <p role="status">{status}</p>
   </form>;
 }
 
-export function StaffControls({id,role,currentGrants,approved}:{id:string;role:string;currentGrants:string[];approved:boolean}) {
+export function StaffControls({id,role,currentGrants}:{id:string;role:string;currentGrants:string[]}) {
   const [selectedRole,setRole]=useState(role);
   const [selected,setSelected]=useState(currentGrants);
   const [status,setStatus]=useState('');
@@ -81,7 +117,7 @@ export function StaffControls({id,role,currentGrants,approved}:{id:string;role:s
   const router=useRouter();
   const changed=selectedRole!==role||selectedRole==='admin'&&
     (selected.length!==currentGrants.length||selected.some(grant=>!currentGrants.includes(grant)));
-  const valid=selectedRole==='student'||selectedRole==='admin'||selectedRole==='ambassador'&&approved;
+  const valid=selectedRole==='student'||selectedRole==='admin';
   return <details className="studio-disclosure staff-permissions">
     <summary>Роль и разрешения</summary>
     <form className="form-stack" onSubmit={async event=>{
@@ -98,13 +134,10 @@ export function StaffControls({id,role,currentGrants,approved}:{id:string;role:s
     }}>
       <label>Роль<select name="role" value={selectedRole} onChange={event=>setRole(event.target.value)}>
         <option value="student">Ученик</option>
-        {approved||role==='ambassador'?<option value="ambassador">Амбассадор</option>:null}
         <option value="admin">Администратор</option>
       </select></label>
       {selectedRole==='admin'?<GrantGroups selected={selected} setSelected={setSelected}/>:null}
-      {changed?<p className="studio-hint">{selectedRole==='ambassador'?
-        'Пользователь войдёт заново. Откроются Академия и программа амбассадоров.':
-        'Пользователь войдёт заново. Учебный допуск нужно выдать отдельно.'}</p>:null}
+      {changed?<p className="studio-hint">Пользователь войдёт заново. Проверьте учебные допуски после смены роли.</p>:null}
       <button type="submit" className="btn btn-dark" disabled={!changed||!valid||pending}>Сохранить роль и права</button>
       <p role="status">{status}</p>
     </form>

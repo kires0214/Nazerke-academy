@@ -4,9 +4,9 @@ import { audit, hash, requireGrant, type Principal } from './security';
 import { createMuxUpload,getMuxAsset,muxApi,muxId,privateAsset,signMuxPlayback,type Fetcher,verifyMuxWebhook } from './mux';
 
 type Video=Record<string,unknown>&{id:string;provider_id:string|null;mux_upload_id:string;mux_playback_id:string|null;state:string;mux_terminal:boolean};
-export async function startVideo(db:Db,actor:Principal,origin:string,fetcher:Fetcher=fetch) {
+export async function startVideo(db:Db,actor:Principal,origin:string,fetcher:Fetcher=fetch,fileName:string|null=null) {
   requireGrant(actor,'media.upload');
-  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,state,created_by) VALUES('video','mux','uploading',$1) RETURNING id",[actor.id])).rows[0];
+  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,state,created_by,file_name) VALUES('video','mux','uploading',$1,$2) RETURNING id",[actor.id,fileName])).rows[0];
   const upload=await createMuxUpload(origin,media.id,fetcher);
   await db.query('UPDATE media SET mux_upload_id=$2 WHERE id=$1',[media.id,upload.uploadId]);
   await audit(db,actor.id,'media.mux.create',media.id);

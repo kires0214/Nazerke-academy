@@ -16,7 +16,7 @@ export async function fixture() {
   await engine.transaction(tx=>migrate(adapter(tx as unknown as PGlite)));
   const run=<T>(work:(db:Db)=>Promise<T>)=>engine.transaction(tx=>work(adapter(tx as unknown as PGlite)));
   let number=900000000000000;
-  async function account(role='student',status='approved',scopes=['academy'],permissions:string[]=[]) {
+  async function account(role='student',status='approved',scopes=['academy','kenwood'],permissions:string[]=[]) {
     const telegramId=String(++number);
     await engine.query("INSERT INTO users(telegram_id,display_name,status) VALUES($1,'Synthetic DEV','approved')",[telegramId]);
     const login=await run(db=>createLogin(db,telegramId));
@@ -29,6 +29,6 @@ export async function fixture() {
   await run(seedDev);
   return {engine,run,account,close:()=>engine.close()};
 }
-export function syntheticPrincipal(role:Principal['role'],permissions:string[]=[],scopes:string[]=['academy']):Principal {
+export function syntheticPrincipal(role:Principal['role'],permissions:string[]=[],scopes:string[]=['academy','kenwood']):Principal {
   return {id:randomUUID(),display_name:'Synthetic DEV',status:'approved',role,grants:permissions,scopes};
 }

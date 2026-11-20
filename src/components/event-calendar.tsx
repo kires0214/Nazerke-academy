@@ -1,16 +1,19 @@
 import Link from 'next/link';
 import { localEventTime,eventTimeZone } from '@/lib/event-time';
 import type { CalendarEvent } from '@/lib/events';
+import { copy,type SiteLocale } from '@/lib/locale';
 
-const monthFormat=new Intl.DateTimeFormat('ru-RU',{year:'numeric',month:'long',timeZone:'UTC'});
-const clockFormat=new Intl.DateTimeFormat('ru-RU',{hour:'2-digit',minute:'2-digit',timeZone:eventTimeZone});
-const dayFormat=new Intl.DateTimeFormat('ru-RU',{weekday:'long',day:'numeric',month:'long',timeZone:eventTimeZone});
-const weekdays=['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
+
 const monthOf=(date:Date)=>date.toISOString().slice(0,7);
 
-export function EventCalendar({items,month,base,canOpenDetails}:{
-  items:CalendarEvent[];month:unknown;base:'/events'|'/academy/events';canOpenDetails:boolean;
+export function EventCalendar({items,month,base,canOpenDetails,locale='ru'}:{
+  items:CalendarEvent[];month:unknown;base:'/events'|'/academy/events';canOpenDetails:boolean;locale?:SiteLocale;
 }) {
+  const t=copy(locale);
+  const monthFormat=new Intl.DateTimeFormat(locale,{year:'numeric',month:'long',timeZone:'UTC'});
+  const clockFormat=new Intl.DateTimeFormat(locale,{hour:'2-digit',minute:'2-digit',hourCycle:'h23',timeZone:eventTimeZone});
+  const dayFormat=new Intl.DateTimeFormat(locale,{weekday:'long',day:'numeric',month:'long',timeZone:eventTimeZone});
+  const weekdays=locale==='en'?['Mon','Tue','Wed','Thu','Fri','Sat','Sun']:['Пн','Вт','Ср','Чт','Пт','Сб','Вс'];
   const today=localEventTime(new Date()).slice(0,10);
   const current=typeof month==='string'&&/^(20|21)\d\d-(0[1-9]|1[0-2])$/.test(month)?month:today.slice(0,7);
   const date=new Date(current+'-01T00:00:00Z');
@@ -31,11 +34,11 @@ export function EventCalendar({items,month,base,canOpenDetails}:{
     byDay.set(event.localDay,dayEvents);
   }
   const title=monthFormat.format(date);
-  return <section className="event-calendar" aria-label="Календарь мастер-классов">
+  return <section className="event-calendar" aria-label={t('Календарь мастер-классов','Masterclass calendar')}>
     <div className="calendar-heading">
-      <Link className="btn btn-outline" href={base+'?month='+previous} aria-label="Предыдущий месяц">←</Link>
+      <Link className="btn btn-outline" href={base+'?month='+previous} aria-label={t('Предыдущий месяц','Previous month')}>←</Link>
       <h2>{title}</h2>
-      <Link className="btn btn-outline" href={base+'?month='+next} aria-label="Следующий месяц">→</Link>
+      <Link className="btn btn-outline" href={base+'?month='+next} aria-label={t('Следующий месяц','Next month')}>→</Link>
     </div>
     <div className="calendar-grid">
       {weekdays.map(day=><span className="calendar-weekday" key={day}>{day}</span>)}
@@ -45,7 +48,7 @@ export function EventCalendar({items,month,base,canOpenDetails}:{
         const count=byDay.get(iso)?.length??0;
         const dateMarker=iso===today?'date':undefined;
         return count?<a key={day} className="calendar-day has-events" href={'#meetings-'+iso}
-          aria-current={dateMarker} aria-label={`${day} · встреч: ${count}`}>
+          aria-current={dateMarker} aria-label={`${day} · ${t("встреч","events")}: ${count}`}>
           <span>{day}</span><small>{count}</small>
         </a>:<span className="calendar-day" key={day} aria-current={dateMarker}>{day}</span>;
       })}
@@ -54,15 +57,16 @@ export function EventCalendar({items,month,base,canOpenDetails}:{
       <h3>{dayFormat.format(new Date(events[0].startsAt))}</h3>
       {events.map(({node,remaining,startsAt})=><article className="calendar-meeting" key={node.id}>
         <div>
-          <p className="calendar-time"><time dateTime={startsAt}>{clockFormat.format(new Date(startsAt))}</time></p>
+          {!node.locked?<p className="calendar-time"><time dateTime={startsAt}>{clockFormat.format(new Date(startsAt))}</time></p>:null}
           <h4>{node.title}</h4>
-          <p>{[node.data.city,node.data.venueAddress].filter(Boolean).join(' · ')||'Адрес уточняется'}</p>
-          {remaining!==null?<p>{remaining>0?`Свободно мест: ${remaining} из ${node.data.capacity}`:'Мест нет, доступен лист ожидания'}</p>:null}
+          {node.locked?<p>{t('Требуется допуск','Access required')}</p>:
+            <p>{[node.data.city,node.data.venueAddress].filter(Boolean).join(' · ')||t('Адрес уточняется','Address to be confirmed')}</p>}
+          {remaining!==null?<p>{remaining>0?t(`Свободно мест: ${remaining} из ${node.data.capacity}`,`Seats available: ${remaining} of ${node.data.capacity}`):t('Мест нет, доступен лист ожидания','Fully booked. You can join the waitlist.')}</p>:null}
         </div>
         <Link className="btn btn-outline" href={canOpenDetails?'/academy/events/'+node.slug:'/login'}>
-          {canOpenDetails?'Подробнее':'Войти для записи'}
+          {node.locked?t('Узнать о доступе','Check access'):canOpenDetails?t('Подробнее','Details'):t('Войти для записи','Sign in to book')}
         </Link>
       </article>)}
-    </section>):<p className="empty">На этот месяц мастер-классы пока не запланированы.</p>}
+    </section>):<p className="empty">{t('На этот месяц мастер-классы пока не запланированы.','No masterclasses are scheduled for this month.')}</p>}
   </section>;
 }

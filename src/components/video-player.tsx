@@ -3,9 +3,12 @@ import {useEffect,useRef,useState} from 'react';
 import type Hls from 'hls.js';
 import {leaseNeedsRenewal,refreshMuxRequest,replaceNativeSource,validateLease,type PlaybackLease} from '@/lib/video-client';
 import {messageFor} from './actions';
+import { copy,type SiteLocale } from '@/lib/locale';
+import { useReaderLocale } from './reader-language';
 
-class PlaybackError extends Error {constructor(public status:number,code:string){super(messageFor(code));}}
+class PlaybackError extends Error {constructor(public status:number,code:string,locale:SiteLocale){super(messageFor(code,locale));}}
 export function VideoPlayer({mediaId,apiBase='/api/media'}:{mediaId:string;apiBase?:string}) {
+  const locale=useReaderLocale(),t=copy(locale);
   const videoRef=useRef<HTMLVideoElement>(null),startRef=useRef<()=>Promise<void>>(async()=>{});
   const [opened,setOpened]=useState(false),[pending,setPending]=useState(false),[status,setStatus]=useState('');
   useEffect(()=>{
@@ -13,14 +16,14 @@ export function VideoPlayer({mediaId,apiBase='/api/media'}:{mediaId:string;apiBa
     let hls:Hls|null=null,lease:PlaybackLease|null=null,receivedAt=0,inFlight:Promise<void>|null=null,blocked=false,epoch=0,recovery=false;
     async function request(path:string) {
       const response=await fetch(apiBase+'/'+mediaId+'/'+path,{cache:'no-store',credentials:'same-origin',signal:AbortSignal.any([abort.signal,AbortSignal.timeout(10000)])});
-      const value=await response.json();if(!response.ok)throw new PlaybackError(response.status,value.error);return value;
+      const value=await response.json();if(!response.ok)throw new PlaybackError(response.status,value.error,locale);return value;
     }
     function failure(error:unknown) {
       if(abort.signal.aborted)return;
       if(error instanceof PlaybackError&&[401,403,409].includes(error.status)) {
         epoch++;blocked=true;video.pause();hls?.destroy();hls=null;video.removeAttribute('src');video.load();lease=null;setOpened(false);
       }
-      setStatus(error instanceof PlaybackError?error.message:'Не удалось обновить видео. Проверьте соединение и повторите.');
+      setStatus(error instanceof PlaybackError?error.message:copy(locale)('Не удалось обновить видео. Проверьте соединение и повторите.','Could not refresh the video. Check your connection and try again.'));
     }
     async function renew(force=false) {
       if(inFlight)return inFlight;
@@ -32,11 +35,11 @@ export function VideoPlayer({mediaId,apiBase='/api/media'}:{mediaId:string;apiBa
         if(video.canPlayType('application/vnd.apple.mpegurl'))replaceNativeSource(video,next.url,abort.signal);
         else if(initial||!hls) {
           const {default:Hls}=await import('hls.js');if(abort.signal.aborted)return;
-          if(!Hls.isSupported())throw new PlaybackError(409,'VIDEO_BROWSER_UNSUPPORTED');
+          if(!Hls.isSupported())throw new PlaybackError(409,'VIDEO_BROWSER_UNSUPPORTED',locale);
           hls?.destroy();hls=new Hls({enableWorker:false,xhrSetup(xhr,url){if(lease)xhr.open('GET',refreshMuxRequest(url,lease.url),true);else xhr.abort();}});
           hls.on(Hls.Events.ERROR,(_event,data)=>{
             if(!data.fatal||abort.signal.aborted)return;
-            recovery=true;video.pause();setStatus('Соединение с видео прервано. Нажмите «Продолжить» — позиция сохранена.');
+            recovery=true;video.pause();setStatus(copy(locale)('Соединение с видео прервано. Нажмите «Продолжить» — позиция сохранена.','The video connection was interrupted. Select Resume to continue from the same point.'));
           });
           hls.loadSource(next.url);hls.attachMedia(video);
         }
@@ -69,10 +72,10 @@ export function VideoPlayer({mediaId,apiBase='/api/media'}:{mediaId:string;apiBa
       abort.abort();clearInterval(timer);document.removeEventListener('visibilitychange',onVisible);video.removeEventListener('play',onPlay);
       hls?.destroy();video.pause();video.removeAttribute('src');video.load();lease=null;startRef.current=async()=>{};
     };
-  },[mediaId,apiBase]);
+  },[mediaId,apiBase,locale]);
   return <div className="video-block">
-    <video ref={videoRef} hidden={!opened} controls playsInline preload="none" aria-label="Учебное видео JUICY"/>
-    <button type="button" className="btn btn-dark" disabled={pending} onClick={()=>void startRef.current()}>{pending?'Открываем…':opened?'Продолжить':'Смотреть видео'}</button>
+    <video ref={videoRef} hidden={!opened} controls playsInline preload="none" aria-label={t('Учебное видео JUICY','JUICY lesson video')}/>
+    <button type="button" className="btn btn-dark" disabled={pending} onClick={()=>void startRef.current()}>{pending?t('Открываем…','Opening…'):opened?t('Продолжить','Resume'):t('Смотреть видео','Watch video')}</button>
     <p role="status" aria-live="polite">{status}</p>
   </div>;
 }

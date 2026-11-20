@@ -65,9 +65,18 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact, true);
     assert.equal((await sendUpdate(5, { contact })).status, 200);
     assert.deepEqual(await (await sendUpdate(5, { contact })).json(), { duplicate: true });
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
+    assert.match(messages.at(-1)!.text,/имя и фамилию/);
+    assert.equal((await sendUpdate(21,{text:'Test'})).status,200);
+    assert.equal((await sendUpdate(22,{text:'Синтетический Ученик'})).status,200);
+    assert.equal((await sendUpdate(23,{text:'Сайт Braun'})).status,200);
+    assert.equal((await sendUpdate(24,{text:'BR-DEMO-12345'})).status,200);
+    assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
     const requests = await f.run(db => pendingRegistrationRequests(db, reader.p));
     assert.equal(requests.length, 1);
-    assert.equal(requests[0].display_name, 'Synthetic Applicant');
+    assert.equal(requests[0].display_name, 'Синтетический Ученик');
+    assert.equal(requests[0].order_source,'braun');
+    assert.equal(requests[0].order_number,'BR-DEMO-12345');
     assert.equal(requests[0].phone, contact.phone_number);
     await assert.rejects(f.run(db => pendingRegistrationRequests(db, outsider.p)), /PERMISSION_DENIED/);
     assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id=$1', [telegramId])).rows.length, 0);
@@ -78,8 +87,8 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await call(review, { action: 'invite' }, { tokens: reader.tokens })).status, 403);
     assert.equal((await call(review, { action: 'invite' }, { tokens: tech.tokens })).status, 200);
     assert.equal((await call(review, { action: 'invite' }, { tokens: tech.tokens })).status, 409);
-    const record = (await f.engine.query("SELECT status, phone FROM registration_requests")).rows[0];
-    assert.deepEqual(record, { status: 'invited', phone: null });
+    const record = (await f.engine.query("SELECT status,phone,order_source,order_number FROM registration_requests")).rows[0];
+    assert.deepEqual(record, { status: 'invited', phone: null, order_source:null,order_number:null });
     assert.ok((await f.engine.query("SELECT id FROM notification_outbox WHERE chat_id=$1 AND body LIKE '%/login%'", [telegramId])).rows.length);
 
     await sendUpdate(7, { text: '/start login' });
@@ -99,7 +108,7 @@ test('a verified bot request stays outside users until Studio invites it, then o
     };
     const approved = await f.run(db => principal(db, tokens));
     assert.equal(approved.role, 'student');
-    assert.deepEqual(approved.scopes, ['academy']);
+    assert.deepEqual(approved.scopes.sort(), ['academy','kenwood']);
     assert.equal((await call('auth/telegram', { code })).status, 401);
 
     await sendUpdate(9, { text: '/login' });

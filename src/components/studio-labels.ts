@@ -16,7 +16,7 @@ export const statusLabels: Record<ContentInput['status'],string> = {
   draft:'Черновик', published:'Опубликовано', hidden:'Снято с публикации', archived:'В архиве',
 };
 export const audienceLabels: Record<StudioAudience,string> = {
-  academy:'Ученики Академии', ambassador:'Амбассадоры', public:'Все посетители',
+  academy:'Ученики Академии', ambassador:'Школа Амбассадора', public:'Все посетители',
 };
 export const mediaKindLabels: Record<string,string> = {video:'Видео',image:'Изображение',document:'PDF'};
 export const mediaStatusLabels: Record<string,string> = {

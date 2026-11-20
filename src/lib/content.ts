@@ -4,7 +4,8 @@ import { check } from './errors';
 import { audit, canLearn, hasGrant, requireGrant, type Principal, type Grant } from './security';
 import { changesToPublishedContent,queueContentNotice } from './content-notices';
 
-import { kinds,assetNames } from './catalog';
+import { kinds,assetNames,equipmentBrands,contentTracks,learningTracks } from './catalog';
+import { contentLanguages } from './locale';
 export { kinds,assetNames } from './catalog';
 const lines = z.array(z.string().trim().min(1).max(2000)).max(100).default([]);
 export const bodySchema = z.object({
@@ -16,10 +17,12 @@ export const bodySchema = z.object({
   shoppingList: lines, prepPlan: lines, postKind: z.enum(['article','news','offer','faq']).optional(),
   city: z.string().max(120).optional(),venueAddress:z.string().trim().max(300).optional(),
   startsAt: z.iso.datetime({offset:true}).optional(), capacity: z.number().int().min(1).max(1000).optional(),
+  equipmentBrand:z.enum(equipmentBrands).optional(),
+  tracks:z.array(z.enum(learningTracks)).min(1).max(learningTracks.length).refine(items=>new Set(items).size===items.length).optional(),
 }).strict();
 export const contentSchema = z.object({
   kind: z.enum(kinds), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,99}$/), title: z.string().trim().min(1).max(200),
-  description: z.string().max(2000).default(''), language: z.enum(['RU','KZ']).default('RU'),
+  description: z.string().max(2000).default(''), language: z.enum(contentLanguages).default('RU'),
   audience: z.enum(['public','academy','ambassador']).default('academy'), status: z.enum(['draft','published','hidden','archived']).default('draft'),
   parentId: z.uuid().nullable().default(null), sortOrder: z.number().int().min(0).max(100000).default(0),
   cover: z.string().refine(x=>assetNames.some(n=>x===n+'.webp')).nullable().default(null),
@@ -31,16 +34,53 @@ export type Content = {
   id:string;kind:string;slug:string;title:string;description:string;language:string;audience:string;status:ContentInput['status'];
   parent_id:string|null;sort_order:number;cover:string|null;data:z.infer<typeof bodySchema>;version:number;published_at:string|null;
 };
-export function visible(node: Content, all: Content[], user?: Principal): boolean {
-  if (node.status !== 'published' || (node.audience !== 'public' && (!user || !canLearn(user,node.audience)))) return false;
-  if (!node.parent_id) return true;
-  const parent = all.find(x=>x.id===node.parent_id);
-  return !!parent && parent.id !== node.id && parent.kind !== node.kind && visible(parent,all,user);
+export type CatalogNode=Content & {locked?:boolean};
+function publishedChain(node:Content,byId:ReadonlyMap<string,Content>) {
+  const chain:Content[]=[];
+  let current:Content|undefined=node;
+  while(current){
+    if(current.language==='KZ'||current.status!=='published'||chain.some(item=>item.id===current?.id))return [];
+    chain.push(current);
+    if(!current.parent_id)return chain;
+    const parent=byId.get(current.parent_id);
+    if(!parent||parent.kind===current.kind)return [];
+    current=parent;
+  }
+  return [];
 }
-export async function listContent(db: Db, user?: Principal, studio = false) {
-  if(studio) { check(user,401,'LOGIN_REQUIRED'); requireGrant(user,'content.read'); }
-  const { rows } = await db.query<Content & Record<string,unknown>>('SELECT id,kind,slug,title,description,language,audience,status,parent_id,sort_order,cover,data,version,published_at FROM content ORDER BY sort_order,title FOR SHARE');
-  return studio ? rows : rows.filter(node=>visible(node,rows,user));
+function canReadChain(chain:Content[],user?:Principal) {
+  const root=chain.at(-1);
+  return !!root&&chain.every(item=>item.audience==='public'||user&&canLearn(user,item.audience,contentTracks(root.audience,root.data)));
+}
+export function visible(node:Content,all:Content[],user?:Principal) {
+  return canReadChain(publishedChain(node,new Map(all.map(item=>[item.id,item]))),user);
+}
+async function loadContent(db:Db) {
+  return (await db.query<Content & Record<string,unknown>>('SELECT id,kind,slug,title,description,language,audience,status,parent_id,sort_order,cover,data,version,published_at FROM content ORDER BY sort_order,title FOR SHARE')).rows;
+}
+export async function listContent(db:Db,user?:Principal,studio=false) {
+  if(studio){check(user,401,'LOGIN_REQUIRED');requireGrant(user,'content.read');}
+  const rows=await loadContent(db);
+  if(studio)return rows;
+  const byId=new Map(rows.map(item=>[item.id,item]));
+  return rows.filter(node=>canReadChain(publishedChain(node,byId),user));
+}
+export async function academyCatalog(db:Db,user:Principal) {
+  const rows=await loadContent(db),byId=new Map(rows.map(node=>[node.id,node]));
+  const nodes:Content[]=[],catalog:CatalogNode[]=[];
+  for(const node of rows){
+    const chain=publishedChain(node,byId);
+    if(!chain.length)continue;
+    if(canReadChain(chain,user)){
+      nodes.push(node);
+      catalog.push(node);
+    }else{
+      const data=bodySchema.parse({equipmentBrand:node.data.equipmentBrand,
+        startsAt:node.kind==='event'?node.data.startsAt:undefined});
+      catalog.push({...node,locked:true,description:'',data});
+    }
+  }
+  return {nodes,catalog};
 }
 export async function getContent(db: Db, idOrSlug: string, user?: Principal) {
   const all = await listContent(db,user);

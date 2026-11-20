@@ -10,7 +10,7 @@ await withDb(async db=>{
   const request=(await db.query<{id:string;display_name:string}>("SELECT id,display_name FROM registration_requests WHERE telegram_id=$1 AND status='requested' FOR UPDATE",[id])).rows[0];
   if(request) {
     await db.query('INSERT INTO users(telegram_id,display_name) VALUES($1,$2) ON CONFLICT(telegram_id) DO NOTHING',[id,request.display_name]);
-    await db.query("UPDATE registration_requests SET status='invited',phone=NULL,reviewed_at=now() WHERE id=$1",[request.id]);
+    await db.query("UPDATE registration_requests SET status='invited',phone=NULL,order_source=NULL,order_number=NULL,reviewed_at=now() WHERE id=$1",[request.id]);
   }
   const user=(await db.query<{id:string}>("SELECT id FROM users WHERE telegram_id=$1 AND status<>'blocked' FOR UPDATE",[id])).rows[0];
   check(user,404,'REQUEST_INVITATION_IN_TELEGRAM_FIRST');

@@ -2,10 +2,10 @@ import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypt
 import type { Db } from './db';
 import { check } from './errors';
 
-import { grants } from './catalog';
+import { grants,learningTracks } from './catalog';
 export { grants } from './catalog';
 export type Grant = typeof grants[number];
-export type Role = 'guest' | 'student' | 'ambassador' | 'admin' | 'techadmin';
+export type Role = 'guest' | 'student' | 'admin' | 'techadmin';
 export type Principal = { id: string; display_name: string; role: Role; status: string; grants: string[]; scopes: string[] };
 export type Tokens = { session?: string; device?: string };
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -33,11 +33,12 @@ export function hasGrant(p: Principal, grant: Grant) { return p.status === 'appr
 export function isStudioRole(role: Role) { return role === 'admin' || role === 'techadmin'; }
 export function requireGrant(p: Principal, grant: Grant) { check(hasGrant(p,grant),403,'PERMISSION_DENIED'); }
 export function requireApproved(p: Principal) { check(p.status === 'approved',403,'APPROVAL_REQUIRED'); }
-export function canLearn(p: Principal, audience: string) {
+export function canLearn(p: Principal, audience: string,tracks:readonly string[]=learningTracks) {
   if (audience === 'public') return true;
   if (p.status !== 'approved') return false;
   if (p.role === 'techadmin') return true;
-  return p.scopes.includes('academy') && (audience === 'academy' || p.role === 'ambassador' && p.scopes.includes('ambassador'));
+  return p.scopes.includes('academy') && (audience==='ambassador'?p.scopes.includes('ambassador'):
+    audience==='academy'&&tracks.some(track=>p.scopes.includes(track)));
 }
 
 export async function principal(db: Db, tokens: Tokens, allowPending = false): Promise<Principal> {

@@ -9,7 +9,7 @@ test('Telegram content notices describe additions and updates only for subscribe
   try {
     const tech=await f.account('techadmin');
     const student=await f.account();
-    const ambassador=await f.account('ambassador','approved',['academy','ambassador']);
+    const ambassador=await f.account('student','approved',['academy','kenwood','ambassador']);
     const blocked=await f.account();
     const noAccess=await f.account('student','approved',[]);
     await f.account(); // opted out
@@ -38,7 +38,7 @@ test('Telegram content notices describe additions and updates only for subscribe
     rows=(await notices()).rows;
     assert.equal(rows.length,5);
     assert.equal(String(rows.at(-1)!.chat_id),ambassador.telegramId);
-    assert.match(rows.at(-1)!.body,/Раздел: Обучение\nКурс: Синтетический курс/);
+    assert.match(rows.at(-1)!.body,/Раздел: Школа Амбассадора\nКурс: Синтетический курс/);
     const delivered:string[]=[];
     const send=async(chat:string,body:string)=>{delivered.push(chat+' '+body);return String(delivered.length);};
     for(let i=0;i<2;i++){

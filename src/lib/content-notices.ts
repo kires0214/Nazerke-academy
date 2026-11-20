@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 import type { Content,ContentInput } from './content';
 import type { Db } from './db';
+import { contentTracks,equipmentBrand } from './catalog';
 
 const topics:Record<ContentInput['kind'],[section:string,material:string]>={
   course:['Обучение','Курс'],module:['Обучение','Модуль'],lesson:['Обучение','Урок'],
@@ -28,8 +29,11 @@ export async function changesToPublishedContent(db:Db,input:ContentInput,previou
   for(const [next,before,label] of fields)if(next!==before&&label)changes.push(label);
   const schedule=['startsAt','city','venueAddress','capacity'] as const;
   if(schedule.some(field=>input.data[field]!==previous.data[field]))changes.push('детали встречи');
-  const {startsAt,city,venueAddress,capacity,...nextData}=input.data;
-  const {startsAt:oldTime,city:oldCity,venueAddress:oldAddress,capacity:oldCapacity,...oldData}=previous.data;
+  if(equipmentBrand(input.data)!==equipmentBrand(previous.data))changes.push('раздел техники');
+  if(!input.parentId&&input.audience!=='public'&&!isDeepStrictEqual([...contentTracks(input.audience,input.data)].sort(),
+    [...contentTracks(previous.audience,previous.data)].sort())&&!changes.includes('доступ'))changes.push('доступ');
+  const {startsAt,city,venueAddress,capacity,tracks,equipmentBrand:brand,...nextData}=input.data;
+  const {startsAt:oldTime,city:oldCity,venueAddress:oldAddress,capacity:oldCapacity,tracks:oldTracks,equipmentBrand:oldBrand,...oldData}=previous.data;
   if(!isDeepStrictEqual(nextData,oldData))changes.push('содержание');
   const links=(await db.query<{id:string}>('SELECT target_id AS id FROM content_links WHERE source_id=$1 ORDER BY sort_order',[previous.id])).rows;
   if(!isDeepStrictEqual(input.links,links.map(link=>link.id)))changes.push('связанные материалы');
@@ -41,20 +45,25 @@ export async function changesToPublishedContent(db:Db,input:ContentInput,previou
 
 export async function queueContentNotice(db:Db,contentId:string,input:ContentInput,changes:string[]|null) {
   if(changes?.length===0)return;
-  const [section,label]=topic(input);
+  const {rows:chain}=await db.query<Pick<Content,'data'|'parent_id'|'audience'|'language'|'status'>>(`WITH RECURSIVE chain AS (
+    SELECT id,parent_id,status,language,audience,data FROM content WHERE id=$1
+    UNION SELECT p.id,p.parent_id,p.status,p.language,p.audience,p.data FROM content p JOIN chain c ON p.id=c.parent_id
+  ) SELECT * FROM chain`,[contentId]);
+  const root=chain.find(node=>!node.parent_id);
+  if(!root||chain.some(node=>node.status!=='published'||node.language==='KZ'))return;
+  const scopes=contentTracks(root.audience,root.data);
+  const needsSchool=chain.some(node=>node.audience==='ambassador');
+  const needsBrand=chain.some(node=>node.audience==='academy');
+  const [category,label]=topic(input);
+  const section=category==='Обучение'?(needsSchool?'Школа Амбассадора':equipmentBrand(root.data)):category;
   const title=input.title.replace(/\s+/g,' ').trim();
   const body=[changes?'Обновление в JUICY':'Новое в JUICY',`Раздел: ${section}`,`${label}: ${title}`];
   if(changes)body.push('Изменилось: '+changes.join(', ')+'.');
-  await db.query(`WITH RECURSIVE chain AS (
-    SELECT id,parent_id,status FROM content WHERE id=$3
-    UNION SELECT p.id,p.parent_id,p.status FROM content p JOIN chain c ON p.id=c.parent_id
-  )
-  INSERT INTO notification_outbox(chat_id,body)
+  await db.query(`INSERT INTO notification_outbox(chat_id,body)
   SELECT u.telegram_id,$1 FROM users u WHERE u.status='approved' AND u.telegram_opt_in
-    AND NOT EXISTS (SELECT 1 FROM chain WHERE status<>'published')
-    AND ($2='public' OR u.role='techadmin' OR EXISTS (
-      SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='academy'
-    ) AND ($2='academy' OR u.role='ambassador' AND EXISTS (
-      SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='ambassador'
-    )))`,[body.join('\n'),input.audience,contentId]);
+    AND (u.role='techadmin' OR NOT ($2 OR $3) OR (
+      EXISTS (SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='academy')
+      AND (NOT $2 OR EXISTS (SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope=ANY($4::text[])))
+      AND (NOT $3 OR EXISTS (SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='ambassador'))
+    ))`,[body.join('\n'),needsBrand,needsSchool,scopes]);
 }

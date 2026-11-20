@@ -3,6 +3,15 @@ import { check } from './errors';
 import { deleteOwnedMuxMedia,type Fetcher } from './mux';
 import { audit,requireGrant,type Principal } from './security';
 
+export function mediaFileName(input:string|null|undefined) {
+  return input?.split(/[\\/]/).at(-1)?.replace(/[\u0000-\u001f\u007f]/g,'').trim().slice(0,180)||null;
+}
+
+export function mediaFileNameHeader(input:string|null) {
+  try{return mediaFileName(input?decodeURIComponent(input):null);}
+  catch{return null;}
+}
+
 export async function deleteMedia(db:Db,actor:Principal,id:string,fetcher?:Fetcher) {
   requireGrant(actor,'media.delete');
   const {rows:[media]}=await db.query<{id:string;provider:string;mux_upload_id:string|null;provider_id:string|null}>(

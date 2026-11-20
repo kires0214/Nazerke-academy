@@ -6,6 +6,7 @@ import { cookieNames } from '../src/lib/http';
 import { audit, type Tokens } from '../src/lib/security';
 import { configureMux, syntheticMux } from './mux-fixtures';
 import { fixture } from './helpers';
+import { academyCatalog,saveContent } from '../src/lib/content';
 
 const origin='https://uat.juicy.invalid';
 process.env.APP_BASE_URL=origin;
@@ -26,7 +27,7 @@ test('role matrix denies restricted actions and verifies ordinary learner/ambass
   const f=await fixture();
   try{
     const call=client(f);
-    const tech=await f.account('techadmin'),student=await f.account(),ambassador=await f.account('ambassador','approved',['academy','ambassador']);
+    const tech=await f.account('techadmin'),student=await f.account(),ambassador=await f.account('student','approved',['academy','ambassador']);
     const noGrants=await f.account('admin','approved',[],[]);
     const pending=await f.account('student','pending',[]);
     const blocked=await f.account();
@@ -183,30 +184,72 @@ test('invitation role and grants are assigned atomically and only by qualified s
   try{
     const call=client(f),tech=await f.account('techadmin');
     const approver=await f.account('admin','approved',[],['students.approve']);
-    const coordinator=await f.account('admin','approved',[],['students.approve','ambassadors.assign']);
+    const coordinator=await f.account('admin','approved',[],['students.approve','students.tracks']);
     const request=async (telegramId:number)=>{
       const {rows:[row]}=await f.engine.query<{id:string}>(
         "INSERT INTO registration_requests(telegram_id,display_name,phone) VALUES($1,'Synthetic invite','7000000') RETURNING id",[telegramId]);
       return 'studio/registration/'+row.id;
     };
     const ambassador=await request(12000001),admin=await request(12000002);
-    const invite=(path:string,t:Tokens,role:string,grants:string[]=[])=>call(path,'POST',t,{action:'invite',role,grants});
-    assert.equal((await invite(ambassador,approver.tokens,'ambassador')).status,403);
+    const invite=(path:string,t:Tokens,role:string,grants:string[]=[],tracks?:string[])=>call(path,'POST',t,{action:'invite',role,grants,tracks});
+    assert.equal((await invite(ambassador,approver.tokens,'student',[],['ambassador'])).status,403);
     assert.equal((await invite(admin,coordinator.tokens,'admin',['content.read'])).status,403);
     assert.equal((await invite(admin,tech.tokens,'techadmin')).status,400);
-    assert.equal((await invite(ambassador,tech.tokens,'ambassador',['audit.read'])).status,400);
+    assert.equal((await invite(ambassador,tech.tokens,'student',['audit.read'],['ambassador'])).status,400);
     assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id IN (12000001,12000002)')).rows.length,0);
 
-    assert.equal((await invite(ambassador,coordinator.tokens,'ambassador')).status,200);
+    assert.equal((await invite(ambassador,coordinator.tokens,'student',[],['ambassador','braun'])).status,200);
     assert.equal((await invite(admin,tech.tokens,'admin',['content.read','media.upload'])).status,200);
     const {rows}=await f.engine.query<{id:string;role:string;status:string}>(
       'SELECT id,role,status FROM users WHERE telegram_id IN (12000001,12000002) ORDER BY telegram_id');
-    assert.deepEqual(rows.map(({role,status})=>[role,status]),[['ambassador','approved'],['admin','approved']]);
+    assert.deepEqual(rows.map(({role,status})=>[role,status]),[['student','approved'],['admin','approved']]);
     assert.deepEqual((await f.engine.query('SELECT scope FROM access_entitlements WHERE user_id=$1 ORDER BY scope',[rows[0].id])).rows,
-      [{scope:'academy'},{scope:'ambassador'}]);
+      [{scope:'academy'},{scope:'ambassador'},{scope:'braun'}]);
     assert.deepEqual((await f.engine.query('SELECT permission FROM admin_grants WHERE user_id=$1 ORDER BY permission',[rows[1].id])).rows,
       [{permission:'content.read'},{permission:'media.upload'}]);
     assert.deepEqual((await f.engine.query("SELECT status,phone FROM registration_requests WHERE telegram_id IN (12000001,12000002)")).rows,
       [{status:'invited',phone:null},{status:'invited',phone:null}]);
+  }finally{await f.close();}
+});
+
+test('catalog cards remain visible while track grants protect detail, attachments and enrollment',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f);
+    const tech=await f.account('techadmin'),kenwood=await f.account();
+    const braun=await f.account('student','approved',['academy','braun']);
+    const empty=await f.account('student','approved',['academy']);
+    const {rows:[file]}=await f.engine.query<{id:string}>(
+      "INSERT INTO media(kind,provider,state,created_by,mime,bytes) VALUES('image','postgres','ready',$1,'image/png',$2) RETURNING id",
+      [tech.id,Buffer.from('synthetic restricted file')]);
+    const save=(input:Record<string,unknown>)=>f.run(db=>saveContent(db,tech.p,{status:'published',language:'EN',...input}));
+    const course=await save({kind:'course',slug:'synthetic-braun-course',title:'Synthetic Braun course',data:{equipmentBrand:'Braun'}});
+    const module=await save({kind:'module',slug:'synthetic-braun-module',title:'Synthetic Braun module',parentId:course});
+    const lesson=await save({kind:'lesson',slug:'synthetic-braun-lesson',title:'Synthetic Braun lesson',parentId:module,
+      description:'Private summary',data:{body:'Private instructions'},mediaIds:[file.id]});
+    const event=await save({kind:'event',slug:'synthetic-track-meeting',title:'Synthetic Braun event',
+      data:{tracks:['braun'],city:'Synthetic city',venueAddress:'Private venue',startsAt:new Date(Date.now()+86400000).toISOString(),capacity:2}});
+    const summary=await f.run(db=>academyCatalog(db,kenwood.p));
+    for(const id of [course,module,lesson,event]){
+      const card=summary.catalog.find(item=>item.id===id);
+      assert.ok(card?.locked);
+      assert.equal(card.description,'');
+      assert.equal(card.data.body,'');
+      assert.equal(card.data.venueAddress,undefined);
+      assert.ok(!summary.nodes.some(item=>item.id===id));
+    }
+    assert.equal((await f.run(db=>academyCatalog(db,empty.p))).catalog.find(item=>item.id===lesson)?.locked,true);
+    assert.equal((await f.run(db=>academyCatalog(db,braun.p))).nodes.find(item=>item.id===lesson)?.data.body,'Private instructions');
+    assert.equal((await call('media/'+file.id+'/file','GET',kenwood.tokens)).status,403);
+    assert.equal((await call('media/'+file.id+'/file','GET',braun.tokens)).status,200);
+    const register='events/'+event+'/register';
+    assert.equal((await call(register,'POST',kenwood.tokens,{})).status,404);
+    assert.equal((await call(register,'POST',braun.tokens,{})).status,200);
+    assert.equal((await call('studio/accounts/'+kenwood.id,'POST',tech.tokens,{action:'tracks',tracks:['kenwood','braun']})).status,200);
+    assert.equal((await call('profile','GET',kenwood.tokens)).status,401);
+    const permissions=await f.engine.query('SELECT scope FROM access_entitlements WHERE user_id=$1 ORDER BY scope',[kenwood.id]);
+    assert.deepEqual(permissions.rows,[{scope:'academy'},{scope:'braun'},{scope:'kenwood'}]);
+    await f.engine.query("UPDATE content SET language='KZ' WHERE id=$1",[course]);
+    assert.ok(!(await f.run(db=>academyCatalog(db,braun.p))).catalog.some(item=>item.id===lesson));
   }finally{await f.close();}
 });

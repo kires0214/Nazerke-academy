@@ -3,7 +3,9 @@
 import { useEffect,useRef,useState,useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Content,ContentInput } from '@/lib/content';
-import { assetNames } from '@/lib/catalog';
+import { assetNames,contentTracks,equipmentBrand,equipmentBrands,type EquipmentBrand,type LearningTrack } from '@/lib/catalog';
+import { contentLanguages } from '@/lib/locale';
+import { TrackChoices } from './staff-controls';
 import { putDirectVideo } from '@/lib/video-client';
 import { eventTimeFromInput,localEventTime } from '@/lib/event-time';
 import { apiCall,messageFor } from './actions';
@@ -24,7 +26,8 @@ function readEditorData(kind:StudioKind,form:FormData,previous?:Content['data'])
   const value=(key:string)=>String(form.get(key)??'');
   const lines=(key:string)=>value(key).split('\n').map(line=>line.trim()).filter(Boolean);
   const number=(key:string)=>value(key)?Number(value(key)):undefined;
-  const base={...previous,body:value('body')};
+  const brand=value('equipmentBrand') as EquipmentBrand|'';
+  const base={...previous,body:value('body'),...(brand?{equipmentBrand:brand==='Braun'?'Braun' as const:undefined}:{})};
   switch(kind){
     case 'recipe': return {...base,category:value('category'),duration:number('duration'),portions:number('portions'),
       ingredients:lines('ingredients'),steps:lines('steps'),settings:value('settings')};
@@ -75,6 +78,7 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
   initialKind?:StudioKind;canPublish:boolean;canArchive:boolean;canUpload:boolean;links:string[];mediaIds:string[];
 }) {
   const [kind,setKind]=useState<StudioKind>(()=>(node?.kind as StudioKind|undefined)??initialKind??allowedKinds[0]);
+  const [tracks,setTracks]=useState<LearningTrack[]>(()=>[...contentTracks(node?.audience??'academy',node?.data??{})]);
   const [audience,setAudience]=useState<StudioAudience>(()=>(node?.audience as StudioAudience|undefined)??'academy');
   const [parentId,setParentId]=useState(node?.parent_id??'');
   const [cover,setCover]=useState(node?.cover??'');
@@ -93,6 +97,7 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
   const parentLabel=kind==='module'?'Курс':'Модуль';
   const parent=needsParent?nodes.find(item=>item.id===parentId):undefined;
   const effectiveAudience=(parent?.audience as StudioAudience|undefined)??audience;
+  const selectTracks=!needsParent&&effectiveAudience==='academy';
   const linkKind=kind==='recipe'?'attachment':recipeLinks.has(kind)?'recipe':null;
   const parentOptions=needsParent?nodes.filter(item=>item.kind===(kind==='module'?'course':'module')).map((item):StudioOption=>{
     const course=kind==='lesson'?nodes.find(candidate=>candidate.id===item.parent_id):undefined;
@@ -120,6 +125,7 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
     const form=new FormData(event.currentTarget);
     const value=(key:string)=>String(form.get(key)??'');
     if(needsParent&&!parent){setNotice(kind==='module'?'Выберите курс для модуля.':'Выберите модуль для урока.');return;}
+    if(selectTracks&&!tracks.length){setNotice('Выберите хотя бы один допуск к материалу.');return;}
     if(effectiveAudience==='public'&&hasVideo){setNotice(messageFor('PUBLIC_VIDEO_FORBIDDEN'));return;}
     if(nextStatus==='published'&&hasProcessing){setNotice('Дождитесь готовности выбранных файлов перед публикацией.');return;}
     setNotice('');
@@ -128,7 +134,8 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
       const payload={
         kind,slug:value('slug'),title:value('title'),description:value('description'),language:value('language') as ContentInput['language'],
         audience:effectiveAudience,status:nextStatus,parentId:needsParent?parentId:null,sortOrder:Number(value('sortOrder')),
-        cover:cover||null,links:linkKind?linked:[],mediaIds:attached,version:node?.version,data:readEditorData(kind,form,node?.data),
+        cover:cover||null,links:linkKind?linked:[],mediaIds:attached,version:node?.version,
+        data:{...readEditorData(kind,form,node?.data),tracks:selectTracks?tracks:undefined},
       };
       const result=await apiCall('/api/studio/content'+(node?'/'+node.id:''),payload,node?'PATCH':'POST');
       setNotice(nextStatus==='published'?'Материал опубликован.':'Материал сохранён.');
@@ -153,7 +160,10 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
               <option key={item} value={item}>{kindLabels[item]}</option>)}</optgroup>:null;
           })}</select>
         </label>}
-        <label>Язык<select name="language" defaultValue={node?.language??'RU'}><option value="RU">Русский</option><option value="KZ">Қазақша</option></select></label>
+        <label>Язык<select name="language" required defaultValue={node?.language==='KZ'?'':node?.language??'RU'}>
+          {node?.language==='KZ'?<option value="" disabled>Выберите язык материала</option>:null}
+          {contentLanguages.map(language=><option key={language} value={language}>{language==='RU'?'Русский':'English'}</option>)}
+        </select></label>
       </div>
       <label>Название<input name="title" defaultValue={node?.title} required maxLength={200}/></label>
       {needsParent?<div key={kind}>
@@ -166,6 +176,13 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
         {publicKinds.has(kind)?<option value="public">{audienceLabels.public}</option>:null}
       </select></label>}
       <label>Краткое описание<textarea name="description" rows={3} defaultValue={node?.description} maxLength={2000}/></label>
+      {kind==='attachment'||kind==='course'&&effectiveAudience!=='ambassador'?<label>Раздел техники
+        <select name="equipmentBrand" defaultValue={equipmentBrand(node?.data??{})}
+          onChange={event=>setTracks(event.target.value==='Braun'?['braun']:['kenwood'])}>
+          {equipmentBrands.map(brand=><option value={brand} key={brand}>{brand}</option>)}
+        </select>
+      </label>:null}
+      {selectTracks?<TrackChoices selected={tracks} onChange={setTracks} joint/>:null}
       <details className="studio-disclosure" ref={ordering} open={!node?true:undefined}>
         <summary>Адрес и порядок</summary>
         <div className="form-grid">
@@ -240,13 +257,14 @@ export function MediaUpload({allowVideo=true,disabled=false,onUploaded,onBusyCha
       if(!video&&file.size>4000000)throw new Error('Выберите изображение или PDF до 4 МБ.');
       let id:string;
       if(video){
-        const media=await apiCall('/api/studio/media/mux',{},'POST',controller.signal);
+        const media=await apiCall('/api/studio/media/mux',{fileName:file.name.slice(0,255)},'POST',controller.signal);
         id=media.id;
         try{await putDirectVideo(media.uploadUrl,file,AbortSignal.any([controller.signal,AbortSignal.timeout(15*60000)]));}
         catch{throw new Error('Не удалось загрузить видео. Повторите загрузку.');}
         setStatus('Видео загружено и обрабатывается.');
       }else{
-        const response=await fetch('/api/studio/media/upload',{method:'POST',headers:{'Content-Type':file.type},body:file,signal:controller.signal});
+        const response=await fetch('/api/studio/media/upload',{method:'POST',
+          headers:{'Content-Type':file.type,'X-Juicy-File-Name':encodeURIComponent(Array.from(file.name).slice(0,180).join(''))},body:file,signal:controller.signal});
         const result=await response.json();
         if(!response.ok)throw new Error(messageFor(result.error));
         id=result.id;

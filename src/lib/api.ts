@@ -7,7 +7,7 @@ import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, isStud
 import { deleteContent, filterContent, getContent, listContent, saveContent, setProgress } from './content';
 import { studioAccounts, updateAccount } from './accounts';
 import { auditPage, canManageMedia, pageViewInput, readAuditFilter, recordPageView } from './activity';
-import { deleteMedia } from './media';
+import { deleteMedia,mediaFileName,mediaFileNameHeader } from './media';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
 import { verifyMuxWebhook } from './mux';
 import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
@@ -132,7 +132,7 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(key==='studio/media'&&method==='GET') {
         check(canManageMedia(p),403,'PERMISSION_DENIED');
-        return (await db.query('SELECT id,kind,state,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;
+        return (await db.query('SELECT id,kind,state,created_at,file_name FROM media ORDER BY created_at DESC LIMIT 200')).rows;
       }
       if(path[0]==='studio'&&path[1]==='media'&&path.length===3&&method==='DELETE') {
         await deleteMedia(db,p,uuid(path[2]));return {ok:true};
@@ -140,7 +140,8 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       if(key==='studio/media/upload'&&method==='POST') return uploadFile(db,p,req);
       if(key==='studio/media/mux'&&method==='POST') {
         requireGrant(p,'media.upload');await rateLimit(db,'video-upload:'+p.id,10,3600);
-        return startVideo(db,p,baseUrl());
+        const input=req.body?z.object({fileName:z.string().max(255).optional()}).strict().parse(await jsonBody(req)):{};
+        return startVideo(db,p,baseUrl(),undefined,mediaFileName(input.fileName));
       }
       if(path[0]==='studio'&&path[1]==='media'&&path.length===4&&path[3]==='refresh'&&method==='POST') {
         return refreshVideo(db,p,uuid(path[2]));
@@ -233,7 +234,8 @@ async function uploadFile(db:Db,p:Principal,req:NextRequest) {
     const expected:Record<string,string>={'image/jpeg':'jpeg','image/png':'png','image/webp':'webp'};
     check(info.width&&info.height&&info.width<=10000&&info.height<=10000&&info.format===expected[mime],400,'INVALID_IMAGE');
   }
-  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by) VALUES($1,'postgres',$2,$3,'ready',$4) RETURNING id",[mime==='application/pdf'?'document':'image',mime,bytes,p.id])).rows[0];
+  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by,file_name) VALUES($1,'postgres',$2,$3,'ready',$4,$5) RETURNING id",
+    [mime==='application/pdf'?'document':'image',mime,bytes,p.id,mediaFileNameHeader(req.headers.get('x-juicy-file-name'))])).rows[0];
   await audit(db,p.id,'media.upload',media.id);return media;
 }
 

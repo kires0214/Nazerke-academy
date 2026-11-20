@@ -8,7 +8,7 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Academy UI | One academy header, no public double menu, profile via avatar, mobile 375/430/768/1280 |
 | Images | Four exact owner photos sharp; 21 topical images valid/200 and correct equipment/dish |
 | Content | Kenwood exactly 10 ordered lessons; courses/modules and recipe cross-links persist |
-| Recipe filters | Category, attachment, time, RU/KZ plus search; same recipe ID across collections |
+| Recipe filters | Category, attachment, time, RU/EN plus search; same recipe ID across collections |
 | Progress | Start-or-continue logic, completed lesson, favorites persist after relogin |
 | CMS | Create draft, edit, attach media, publish/unpublish; persists in DB |
 | CMS denial | Admin without publishing grant receives 403 on direct request |

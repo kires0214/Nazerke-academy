@@ -4,8 +4,8 @@ import { fixture,syntheticPrincipal } from './helpers';
 import { canLearn,createLogin,hasGrant,hash,principal,resetDevice } from '../src/lib/security';
 import { updateAccount } from '../src/lib/accounts';
 
-test('five-role authorization matrix keeps staff grants separate from learning',()=>{
-  const student=syntheticPrincipal('student'),ambassador=syntheticPrincipal('ambassador',[],['academy','ambassador']);
+test('role and learning entitlement matrix keeps staff grants separate from learning',()=>{
+  const student=syntheticPrincipal('student'),ambassador=syntheticPrincipal('student',[],['academy','ambassador']);
   const admin=syntheticPrincipal('admin',['content.edit'],[]),tech=syntheticPrincipal('techadmin');
   assert.equal(canLearn(syntheticPrincipal('guest',[],[]),'academy'),false);
   assert.equal(canLearn(student,'academy'),true);assert.equal(canLearn(student,'ambassador'),false);
