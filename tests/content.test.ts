@@ -1,10 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { fixture } from './helpers';
-import { contentSchema,filterContent,getContent,listContent,saveContent,setProgress } from '../src/lib/content';
+import { academyCatalog,contentSchema,filterContent,getContent,listContent,saveContent,setProgress } from '../src/lib/content';
 import { migrate } from '../scripts/migrate';
 import { readFile } from 'node:fs/promises';
 import { starterProgram } from '../src/lib/starter-program';
+import { readCatalogSearch,searchCatalog,trackCatalog } from '../src/lib/catalog-search';
 
 test('synthetic content: ten ordered Kenwood lessons, private scope and normalized recipe reuse',async()=>{
   const f=await fixture();try {const a=await f.account(),all=await f.run(db=>listContent(db,a.p));
@@ -57,6 +58,31 @@ test('recipe search, language/category/duration filters and XSS remain text',asy
     assert.equal(filterContent(all,new URLSearchParams({kind:'recipe',q:'паста',language:'RU',category:'Горячие блюда',duration:'60'})).length,1);
     assert.equal(filterContent(all,new URLSearchParams({kind:'recipe',duration:'15'})).length,0);
     assert.equal(filterContent(all,new URLSearchParams({q:"' OR 1=1 --"})).length,0);
+  }finally{await f.close();}
+});
+test('section search finds lesson titles through their course and excludes drafts and restricted details',async()=>{
+  const f=await fixture();
+  try {
+    const learner=await f.account(),tech=await f.account('techadmin');
+    const save=(kind:string,slug:string,title:string,data:Record<string,unknown>,status='published')=>f.run(db=>saveContent(db,tech.p,{
+      kind,slug,title,data,status,
+    }));
+    const upcoming=await save('post','synthetic-coming-soon','Ёлка · Synthetic',{postKind:'coming-soon',tracks:['braun'],body:'Private synopsis marker'});
+    await save('post','synthetic-draft-soon','Ёлка · Draft',{postKind:'coming-soon'},'draft');
+    await save('post','synthetic-visible-offer','Ёлка · Offer',{postKind:'offer'});
+    const {catalog}=await f.run(db=>academyCatalog(db,learner.p));
+    const search=readCatalogSearch({q:'ПЕРВОЕ ВКЛЮЧЕНИЕ',kind:'lesson'},{kinds:true});
+    assert.deepEqual(searchCatalog(trackCatalog(catalog,'kenwood','training',true),search).map(node=>node.slug),['kenwood-3']);
+    for(const group of ['attachments','recipes'] as const)assert.equal(searchCatalog(trackCatalog(catalog,'kenwood',group,true),search).length,0);
+    assert.equal(searchCatalog(trackCatalog(catalog,'braun','all',true),search).length,0);
+    const posts=catalog.filter(node=>node.data.postKind==='coming-soon');
+    const matches=searchCatalog(posts,readCatalogSearch({q:'елка',language:'RU'}));
+    assert.deepEqual(matches.map(node=>node.id),[upcoming]);
+    assert.ok(matches[0].locked);
+    assert.equal(searchCatalog(posts,readCatalogSearch({q:'Private synopsis marker'})).length,0);
+    assert.ok(!trackCatalog(catalog,'kenwood','all',true).some(node=>node.data.postKind==='coming-soon'||node.data.postKind==='offer'));
+    assert.equal(searchCatalog(posts,readCatalogSearch({q:'елка',language:'EN'})).length,0);
+    await assert.rejects(f.run(db=>getContent(db,upcoming,learner.p)),/CONTENT_NOT_FOUND/);
   }finally{await f.close();}
 });
 test('starter program tracks only published accessible courses and completes separately for each learner',async()=>{

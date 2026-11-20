@@ -1,13 +1,13 @@
 import { z } from 'zod';
-import { academyDetailKinds } from './catalog';
+import { academyDetailKinds,academyPostSections } from './catalog';
 import { canEditContent, getContent, type Content } from './content';
 import type { Db } from './db';
 import { check } from './errors';
 import { audit, hasGrant, isStudioRole, requireGrant, type Principal } from './security';
 
 const academySections = new Set(['learn','kenwood','braun','ambassadors','profile','more','club','recipes','offers','contacts',
-  'search','attachments','courses','events','materials','collections','news']);
-const studioSections = new Set(['courses','recipes','sections','announcements','offers','events']);
+  'search','attachments','courses','events','materials','collections','news','coming-soon']);
+const studioSections = new Set(['courses','recipes','sections','announcements','offers','events','coming-soon']);
 export const canManageMedia = (user: Principal) => hasGrant(user,'media.upload') || hasGrant(user,'media.delete');
 export const pageViewInput = z.object({path:z.string().max(150).regex(/^\/(academy|admin)(?:\/[a-z0-9-]+){0,2}$/)}).strict();
 
@@ -18,6 +18,7 @@ export async function recordPageView(db:Db, user:Principal, path:string) {
       check(Object.hasOwn(academyDetailKinds,section),404,'ROUTE_NOT_FOUND');
       const item=await getContent(db,detail,user);
       check(item.slug===detail&&item.kind===academyDetailKinds[section],404,'ROUTE_NOT_FOUND');
+      if(academyPostSections[section])check(item.data.postKind===academyPostSections[section],404,'ROUTE_NOT_FOUND');
     } else check(!section||academySections.has(section),404,'ROUTE_NOT_FOUND');
   } else {
     check(isStudioRole(user.role),403,'PERMISSION_DENIED');

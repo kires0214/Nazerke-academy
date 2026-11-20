@@ -9,7 +9,7 @@ import { academyData,pageTokens } from '@/lib/pages';
 import { withDb } from '@/lib/db';
 import { principal } from '@/lib/security';
 import { getContent } from '@/lib/content';
-import { academyDetailKinds,groupFor,sectionFor,sectionHref,trackLabels } from '@/lib/catalog';
+import { academyDetailKinds,academyPostSections,groupFor,sectionFor,sectionHref,trackLabels } from '@/lib/catalog';
 import { eventsWithSeats } from '@/lib/events';
 import { siteLocale } from '@/lib/site-locale';
 import { copy } from '@/lib/locale';
@@ -18,13 +18,14 @@ export default async function Page({params}:{params:Promise<{section:string;slug
   const [{section,slug},{nodes,catalog,progress,favorites,links},locale]=await Promise.all([params,academyData(),siteLocale()]);
   const t=copy(locale);
   const card=catalog.find(node=>node.slug===slug&&node.kind===academyDetailKinds[section]);
-  if(!card||section==='offers'&&card.data.postKind!=='offer')notFound();
+  if(!card||academyPostSections[section]&&card.data.postKind!==academyPostSections[section])notFound();
   const parent=catalog.find(node=>node.id===card.parent_id);
   const root=catalog.find(node=>node.id===parent?.parent_id)??parent??card;
   const track=sectionFor(root.audience,root.data),group=groupFor(root.kind,root.data);
   const location=track==='ambassador'?t('Школа Амбассадора','Ambassador School'):trackLabels[track];
   const back=card.kind==='event'?{href:'/academy/events',label:t('Мастер-классы','Masterclasses')}:
     card.data.postKind==='offer'?{href:'/academy/offers',label:t('Акции','Offers')}:
+    card.data.postKind==='coming-soon'?{href:'/academy/coming-soon',label:'Coming Soon'}:
     {href:`${sectionHref(track)}?group=${group}`,label:`${location} / ${groupLabel(locale,group)}`};
   const subnav=<Link className="btn btn-outline btn-small catalog-back" href={back.href}>← {back.label}</Link>;
   if(card.locked)return <>

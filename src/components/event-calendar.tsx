@@ -2,12 +2,13 @@ import Link from 'next/link';
 import { localEventTime,eventTimeZone } from '@/lib/event-time';
 import type { CalendarEvent } from '@/lib/events';
 import { copy,type SiteLocale } from '@/lib/locale';
+import { catalogUrl,type CatalogSearch } from '@/lib/catalog-search';
 
 
 const monthOf=(date:Date)=>date.toISOString().slice(0,7);
 
-export function EventCalendar({items,month,base,canOpenDetails,locale='ru'}:{
-  items:CalendarEvent[];month:unknown;base:'/events'|'/academy/events';canOpenDetails:boolean;locale?:SiteLocale;
+export function EventCalendar({items,month,base,canOpenDetails,locale='ru',filters}:{
+  items:CalendarEvent[];month:unknown;base:'/events'|'/academy/events';canOpenDetails:boolean;locale?:SiteLocale;filters?:CatalogSearch;
 }) {
   const t=copy(locale);
   const monthFormat=new Intl.DateTimeFormat(locale,{year:'numeric',month:'long',timeZone:'UTC'});
@@ -36,9 +37,9 @@ export function EventCalendar({items,month,base,canOpenDetails,locale='ru'}:{
   const title=monthFormat.format(date);
   return <section className="event-calendar" aria-label={t('Календарь мастер-классов','Masterclass calendar')}>
     <div className="calendar-heading">
-      <Link className="btn btn-outline" href={base+'?month='+previous} aria-label={t('Предыдущий месяц','Previous month')}>←</Link>
+      <Link className="btn btn-outline" href={catalogUrl(base,{month:previous,...filters})} aria-label={t('Предыдущий месяц','Previous month')}>←</Link>
       <h2>{title}</h2>
-      <Link className="btn btn-outline" href={base+'?month='+next} aria-label={t('Следующий месяц','Next month')}>→</Link>
+      <Link className="btn btn-outline" href={catalogUrl(base,{month:next,...filters})} aria-label={t('Следующий месяц','Next month')}>→</Link>
     </div>
     <div className="calendar-grid">
       {weekdays.map(day=><span className="calendar-weekday" key={day}>{day}</span>)}

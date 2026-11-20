@@ -7,10 +7,13 @@ import { CatalogTabs } from '@/components/catalog-tabs';
 import { StarterProgram } from '@/components/starter-program';
 import { CityInterestForm,SupportForm } from '@/components/actions';
 import { EventCalendar } from '@/components/event-calendar';
-import { catalogGroups,groupFor,sectionFor,trackLabels } from '@/lib/catalog';
+import { SectionSearch } from '@/components/section-search';
+import { academyPostSections,catalogGroups,sectionHref,trackLabels } from '@/lib/catalog';
+import { catalogUrl,readCatalogSearch,searchCatalog,trackCatalog,type SectionQuery } from '@/lib/catalog-search';
 import { filterContent } from '@/lib/content';
 import { withDb } from '@/lib/db';
 import { eventsWithSeats } from '@/lib/events';
+import { localEventTime } from '@/lib/event-time';
 import { contentLang,contentLanguages,copy } from '@/lib/locale';
 import { academyData,pageTokens } from '@/lib/pages';
 import { principal } from '@/lib/security';
@@ -18,39 +21,51 @@ import { siteLocale } from '@/lib/site-locale';
 import { supportHistory } from '@/lib/support';
 import { starterProgram } from '@/lib/starter-program';
 
-export default async function Page({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<Record<string,string|undefined>>}) {
+export default async function Page({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<SectionQuery>}) {
   const [{section},search,{user,nodes,catalog,progress,favorites,articleFavorites,links},locale]=await Promise.all([params,searchParams,academyData(),siteLocale()]);
   const t=copy(locale);
+  const noResults=t('По этому запросу ничего не найдено.','No results for this search.');
   if(section==='learn') return <><PageHead title={t('Разделы','Sections')}/><AcademySections locale={locale} catalog={catalog}/></>;
   if(section==='kenwood'||section==='braun'||section==='ambassadors') {
     const track=section==='ambassadors'?'ambassador':section;
-    const group=catalogGroups.find(group=>group===search.group)??'training';
+    const group=search.group==='all'?'all':catalogGroups.find(group=>group===search.group)??'training';
     const label=track==='ambassador'?t('Школа Амбассадора','Ambassador School'):trackLabels[track];
-    const items=catalog.filter(node=>!node.parent_id&&node.kind!=='event'&&node.data.postKind!=='offer'&&
-      sectionFor(node.audience,node.data)===track&&groupFor(node.kind,node.data)===group);
-    const intro=group==='training'&&track==='kenwood'?items.find(node=>node.kind==='course'&&node.slug==='kenwood'):undefined;
+    const filters=readCatalogSearch(search,{kinds:true});
+    const active=Object.values(filters).some(Boolean);
+    const path=sectionHref(track);
+    const items=searchCatalog(trackCatalog(catalog,track,group,active),filters);
+    const intro=!active&&group==='training'&&track==='kenwood'?items.find(node=>node.kind==='course'&&node.slug==='kenwood'):undefined;
     const modules=new Set(intro?catalog.filter(node=>node.parent_id===intro.id).map(node=>node.id):[]);
     const lessons=catalog.filter(node=>node.kind==='lesson'&&node.parent_id&&modules.has(node.parent_id));
     const cards=items.filter(node=>node.id!==intro?.id||!lessons.length);
     return <>
       <PageHead title={label}/>
-      <CatalogTabs section={track} active={group} locale={locale}/>
+      <CatalogTabs section={track} active={group} locale={locale} search={filters}/>
+      <SectionSearch locale={locale} path={path} search={filters} byKind keep={{group}} clearHref={catalogUrl(path,{group})}/>
       {lessons.length&&intro?<section className="section equipment-intro"><h2 lang={contentLang(intro.language)}>{intro.title}</h2>
         <div className="course-steps">{lessons.map((node,index)=><Link href={contentHref(node)} className="step" key={node.id}>
           <span className="step-num">{progress.some(p=>p.lesson_id===node.id&&p.completed_at)?'✓':index+1}</span>
           <div className="step-body" lang={contentLang(node.language)}><strong>{node.title}</strong>
             <small>{node.locked?t('Требуется допуск','Access required'):node.description}</small></div>
         </Link>)}</div></section>:null}
-      {cards.length||!lessons.length?<div className="catalog-results"><ContentCards nodes={cards} locale={locale}/></div>:null}
+      {cards.length||!lessons.length?<div className="catalog-results"><ContentCards nodes={cards} locale={locale} empty={active?noResults:undefined}/></div>:null}
     </>;
   }
   if(section==='attachments'&&(search.brand==='Kenwood'||search.brand==='Braun')){
     redirect('/academy/'+search.brand.toLowerCase()+'?group=attachments');
   }
-  if(section==='offers')return <>
-    <PageHead title={t('Акции','Offers')}/>
-    <ContentCards nodes={catalog.filter(node=>node.kind==='post'&&node.data.postKind==='offer')} locale={locale}/>
-  </>;
+  if(section==='offers'||section==='coming-soon'){
+    const title=section==='offers'?t('Акции','Offers'):'Coming Soon';
+    const path='/academy/'+section;
+    const filters=readCatalogSearch(search,{tracks:true});
+    const active=Object.values(filters).some(Boolean);
+    const items=searchCatalog(catalog.filter(node=>node.kind==='post'&&node.data.postKind===academyPostSections[section]),filters);
+    return <>
+      <PageHead title={title} description={section==='coming-soon'?t('Анонсы новых курсов, материалов и встреч.','Announcements about upcoming courses, resources and events.'):undefined}/>
+      <SectionSearch locale={locale} path={path} search={filters} byTrack clearHref={path}/>
+      <ContentCards nodes={items} locale={locale} empty={active?noResults:section==='coming-soon'?t('Здесь появятся опубликованные анонсы.','Published announcements will appear here.'):undefined}/>
+    </>;
+  }
   if(section==='profile') return <><PageHead title={user.display_name}/>
     <StarterProgram locale={locale} program={starterProgram(nodes,progress)}/>
     <div className="info-box"><h2>{t('Мой прогресс','My progress')}</h2><p>{t('Завершено уроков','Lessons completed')}: {progress.filter(p=>p.completed_at).length}</p>
@@ -75,9 +90,22 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
         <SupportForm/>{bot?<p><a href={'https://t.me/'+encodeURIComponent(bot)} target="_blank" rel="noreferrer">{t('Уведомления и поддержка в Telegram','Notifications and support on Telegram')} →</a></p>:null}</section></>;
   }
   if(section==='events'){
-    const events=await withDb(db=>eventsWithSeats(db,catalog.filter(node=>node.data.startsAt&&Date.parse(node.data.startsAt)>Date.now())));
+    const path='/academy/events';
+    const filters=readCatalogSearch(search,{tracks:true});
+    const active=Object.values(filters).some(Boolean);
+    const now=Date.now();
+    const matches=searchCatalog(catalog.filter(node=>node.kind==='event'&&node.data.startsAt&&Date.parse(node.data.startsAt)>now),filters);
+    const events=await withDb(db=>eventsWithSeats(db,matches));
+    const months=active?[...new Set(events.flatMap(({node})=>node.data.startsAt?[localEventTime(node.data.startsAt).slice(0,7)]:[]))].sort():[];
+    const month=search.month??months[0];
+    const monthFormat=new Intl.DateTimeFormat(locale,{year:'numeric',month:'long',timeZone:'UTC'});
     return <><PageHead title={t('Мастер-классы','Masterclasses')} description={t('Расписание встреч и свободные места.','Schedule and available seats.')}/>
-      <EventCalendar base="/academy/events" items={events} month={search.month} canOpenDetails locale={locale}/>
+      <SectionSearch locale={locale} path={path} search={filters} byTrack clearHref={path} placeholder={t('Название встречи или город','Masterclass name or city')}/>
+      {active?events.length?<nav className="catalog-tabs event-search-months" aria-label={t('Месяцы с результатами','Months with results')}>
+        {months.map(value=><Link className="btn btn-outline" key={value} href={catalogUrl(path,{month:value,...filters})}
+          aria-current={value===month?'page':undefined}>{monthFormat.format(new Date(value+'-01T00:00:00Z'))}</Link>)}
+      </nav>:<p className="empty">{noResults}</p>:null}
+      {(!active||events.length>0)?<EventCalendar base="/academy/events" items={events} month={month} filters={filters} canOpenDetails locale={locale}/>:null}
       <section className="info-box"><h2>{t('Встреча в вашем городе','An event in your city')}</h2><CityInterestForm/></section></>;
   }
   const sections:Record<string,{title:string;kind?:string}>={
@@ -94,7 +122,7 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
   const language=contentLanguages.find(code=>code===search.language)??'';
   return <><PageHead title={title}/>
     {section==='recipes'||section==='search'?<form className="filters" method="GET">
-      <label><span className="sr-only">{t('Поиск','Search')}</span><input name="q" placeholder={t('Название рецепта, урока или насадки','Recipe, lesson or attachment name')} defaultValue={search.q}/></label>
+      <label><span className="sr-only">{t('Поиск','Search')}</span><input name="q" placeholder={t('Название рецепта, урока или насадки','Recipe, lesson or attachment name')} defaultValue={typeof search.q==='string'?search.q:undefined}/></label>
       <label><span className="sr-only">{t('Язык материала','Content language')}</span><select name="language" defaultValue={language}>
         <option value="">{t('Все языки','All languages')}</option>
         <option value="RU">{t('Русский','Russian')}</option><option value="EN">{t('Английский','English')}</option>
@@ -109,7 +137,7 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
           <option value="30">{t('До 30 минут','Up to 30 minutes')}</option><option value="60">{t('До часа','Up to an hour')}</option></select></label>
       </>:null}
       <button className="btn btn-dark">{t('Найти','Find')}</button>
-    </form>:null}
+    </form>:<SectionSearch locale={locale} path={'/academy/'+section} search={readCatalogSearch(search)} clearHref={'/academy/'+section}/>}
     <ContentCards nodes={items} locale={locale}/>
     {section==='recipes'?<section className="section"><Link className="btn btn-outline" href="/academy/collections">{t('Кухни мира и тематические столы','World cuisines and themed menus')} →</Link></section>:null}
   </>;

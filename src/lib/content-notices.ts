@@ -15,6 +15,7 @@ function topic(input:ContentInput):[string,string] {
   if(input.kind!=='post')return topics[input.kind];
   if(input.data.postKind==='faq')return ['JUICY Club','Ответ на вопрос'];
   if(input.data.postKind==='offer')return ['Акции','Акция'];
+  if(input.data.postKind==='coming-soon')return ['Coming Soon','Анонс'];
   if(input.data.postKind==='news')return ['Новости','Новость'];
   return input.audience==='public'?['Статьи','Статья']:['Новости','Статья'];
 }

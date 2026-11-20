@@ -10,11 +10,12 @@ export function PageHead({title,description,kicker='JUICY Academy',lang}:{title:
 }
 export function contentHref(node:Pick<Content,'kind'|'slug'>&Partial<Pick<Content,'data'>>) {
   const route:Record<string,string>={lesson:'lessons',attachment:'attachments',recipe:'recipes',collection:'collections',course:'courses',post:'news',material:'materials',event:'events',section:'sections',module:'modules'};
-  return '/academy/'+(node.kind==='post'&&node.data?.postKind==='offer'?'offers':route[node.kind]??'content')+'/'+node.slug;
+  const postSection=node.kind==='post'&&(node.data?.postKind==='offer'?'offers':node.data?.postKind==='coming-soon'?'coming-soon':undefined);
+  return '/academy/'+(postSection||route[node.kind]||'content')+'/'+node.slug;
 }
-export function ContentCards({nodes,linkFor=contentHref,locale='ru'}:{nodes:CatalogNode[];linkFor?:(node:Content)=>string;locale?:SiteLocale}) {
+export function ContentCards({nodes,linkFor=contentHref,locale='ru',empty}:{nodes:CatalogNode[];linkFor?:(node:Content)=>string;locale?:SiteLocale;empty?:string}) {
   const t=copy(locale);
-  if(!nodes.length) return <p className="empty">{t('Материалы появятся после публикации.','Materials will appear here once published.')}</p>;
+  if(!nodes.length) return <p className="empty">{empty??t('Материалы появятся после публикации.','Materials will appear here once published.')}</p>;
   return <div className="cards">{nodes.map(node=><Link className="card" key={node.id} href={linkFor(node)}>
     {node.cover?<div className={'card-img'+(node.kind==='attachment'?' product':'')}><Photo name={node.cover} alt={node.title}/></div>:null}
     <div className="card-body"><span className="meta">{node.language==='KZ'?t('Архивный язык','Archived language'):node.language}{node.data.duration?` · ${node.data.duration} ${t('мин','min')}`:''}</span>

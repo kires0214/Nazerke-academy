@@ -13,7 +13,7 @@ import { hasGrant,isStudioRole,principal } from '@/lib/security';
 import { canDeleteContent,canEditContent,kinds,listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
-import { catalogGroups,contentTracks,groupFor,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
+import { academyPostSections,catalogGroups,contentTracks,groupFor,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
 import { pendingRegistrationRequests } from '@/lib/telegram-access';
 import { auditPage,canManageMedia,readAuditFilter } from '@/lib/activity';
 import { studioAccounts } from '@/lib/accounts';
@@ -26,6 +26,7 @@ const contentSections=[
   {slug:'sections',label:'Разделы и файлы',kinds:['section','material']},
   {slug:'announcements',label:'Статьи и анонсы',kinds:['post']},
   {slug:'offers',label:'Акции',kinds:['post']},
+  {slug:'coming-soon',label:'Coming Soon',kinds:['post']},
   {slug:'events',label:'Мастер-классы',kinds:['event']},
 ];
 const accountRoles:Record<string,string>={student:'Ученик',admin:'Администратор',techadmin:'Tech Admin'};
@@ -48,13 +49,14 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const placement=learningTracks.find(value=>value===query.section);
       const group=catalogGroups.find(value=>value===query.group);
       const sectionUrl=contentSection.slug?'/admin/'+contentSection.slug:'/admin';
+      const postKind=academyPostSections[contentSection.slug];
       const byId=new Map(nodes.map(node=>[node.id,node]));
       const displayed=nodes.filter(node=>{
         const parent=byId.get(node.parent_id??'');
         const root=byId.get(parent?.parent_id??'')??parent??node;
         return (
         (!contentSection.kinds.length||contentSection.kinds.includes(node.kind))&&(!status||node.status===status)&&(!language||node.language===language)&&
-        (contentSection.slug==='offers'?node.data.postKind==='offer':contentSection.slug!=='announcements'||node.data.postKind!=='offer')&&
+        (postKind?node.data.postKind===postKind:contentSection.slug!=='announcements'||!Object.values(academyPostSections).some(kind=>kind===node.data.postKind))&&
         (!placement||sectionFor(root.audience,root.data)===placement)&&(!group||groupFor(root.kind,root.data)===group)&&
         (!track||root.audience!=='public'&&contentTracks(root.audience,root.data).some(value=>value===track))&&
         (!term||`${node.title} ${node.slug}`.toLocaleLowerCase('ru').includes(term.toLocaleLowerCase('ru'))));
@@ -64,6 +66,7 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
         <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>
           {contentSection.slug==='events'&&canEditContent(user,'event')?<Link className="btn btn-dark" href="/admin/new?kind=event">Создать мастер-класс</Link>:
             contentSection.slug==='offers'&&canEditContent(user,'post')?<Link className="btn btn-dark" href="/admin/new?kind=post&publication=offer">Создать акцию</Link>:
+            contentSection.slug==='coming-soon'&&canEditContent(user,'post')?<Link className="btn btn-dark" href="/admin/new?kind=post&publication=coming-soon">Создать анонс</Link>:
             kinds.some(kind=>canEditContent(user,kind))?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
         <nav className="studio-content-nav" aria-label="Виды материалов">
           {contentSections.map(section=><Link key={section.slug} href={section.slug?'/admin/'+section.slug:'/admin'} aria-current={section===contentSection?'page':undefined}>{section.label}</Link>)}

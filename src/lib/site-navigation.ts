@@ -9,6 +9,7 @@ export function academyNavigation(locale:SiteLocale) {
     {href:'/academy/braun',label:'Braun',summary:t('Обучение, рецепты и насадки','Lessons, recipes and attachments')},
     {href:'/academy/ambassadors',label:t('Школа Амбассадора','Ambassador School'),summary:t('Программа для амбассадоров','The ambassador program')},
     {href:'/academy/events',label:t('Мастер-классы','Masterclasses'),summary:t('Календарь встреч и запись','Event calendar and booking')},
+    {href:'/academy/coming-soon',label:'Coming Soon',summary:t('Что готовится в Академии','What’s coming to the Academy')},
     {href:'/academy/contacts',label:t('Контакты','Contact'),summary:t('Поддержка и вопросы о доступе','Support and access questions')},
   ];
 }

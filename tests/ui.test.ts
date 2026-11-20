@@ -9,6 +9,8 @@ import {EventCalendar} from '../src/components/event-calendar';
 import {CatalogTabs} from '../src/components/catalog-tabs';
 import {AcademySections} from '../src/components/academy-sections';
 import {StarterProgram} from '../src/components/starter-program';
+import {SectionSearch} from '../src/components/section-search';
+import {readCatalogSearch} from '../src/lib/catalog-search';
 import {starterProgram} from '../src/lib/starter-program';
 import {academyNavigation} from '../src/lib/site-navigation';
 import {bodySchema} from '../src/lib/content';
@@ -46,7 +48,10 @@ test('Academy section heroes have separate images and tabs switch subgroups in p
   const destinations=academyNavigation('ru').slice(1,-1).map(link=>link.href);
   assert.deepEqual([...cards.matchAll(/href="([^"]+)"/g)].map(match=>match[1]),destinations);
   const images=[...cards.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match=>match[1]);
-  assert.equal(new Set(images).size,destinations.length);
+  assert.equal(new Set(images).size,destinations.length-1);
+  assert.ok(images.includes('/academy-covers/offers.webp'));
+  assert.ok(images.includes('/academy-covers/kenwood.webp'));
+  assert.match(cards,/academy-hero-coming-soon/);
   assert.doesNotMatch(cards,/Контакты/);
   for(const section of ['kenwood','braun','ambassador'] as const){
     const tabs=renderToStaticMarkup(createElement(CatalogTabs,{section,active:'attachments',locale:'ru'}));
@@ -56,6 +61,17 @@ test('Academy section heroes have separate images and tabs switch subgroups in p
     assert.match(active??'',/group=attachments"/);
     assert.equal((tabs.match(/aria-current="page"/g)??[]).length,1);
   }
+});
+test('section filters keep their subsection and tabs keep the applied search',()=>{
+  const search=readCatalogSearch({q:'Кухня',kind:'lesson',language:'RU'},{kinds:true});
+  const form=renderToStaticMarkup(createElement(SectionSearch,{locale:'ru',path:'/academy/kenwood',search,byKind:true,
+    keep:{group:'training'},clearHref:'/academy/kenwood?group=training'}));
+  assert.match(form,/role="search"/);
+  assert.match(form,/name="group" value="training"/);
+  assert.match(form,/name="kind"/);
+  const tabs=renderToStaticMarkup(createElement(CatalogTabs,{locale:'ru',section:'kenwood',active:'training',search}));
+  assert.match(tabs,/q=%D0%9A[^"]+kind=lesson[^"]+group=recipes/);
+  assert.match(tabs,/group=all/);
 });
 test('the empty starter program stays available in the profile only',()=>{
   const program=starterProgram([],[]);

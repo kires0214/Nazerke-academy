@@ -232,16 +232,17 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
 .academy-content{padding:20px 0 32px}
 .academy-content .page-head{padding:10px 0 12px;margin:0}
 .academy-content .page-head .eyebrow{margin-bottom:5px}
-.academy-content h1{font-size:clamp(26px,3.4vw,40px);margin-bottom:10px}
-.academy-content h2{font-size:clamp(20px,2.3vw,29px)}
-.academy-content h3{font-size:clamp(17px,1.8vw,22px)}
+.academy-content{font-size:14px}
+.academy-content h1{font-size:clamp(26px,3vw,36px);line-height:1.16;margin-bottom:10px}
+.academy-content h2{font-size:clamp(20px,2.1vw,27px)}
+.academy-content h3{font-size:clamp(17px,1.7vw,21px)}
 .admin-panel h1{font-size:clamp(27px,3.5vw,42px)}
 .admin-panel h2{font-size:clamp(21px,2.5vw,29px)}
 .academy-content .section{padding:18px 0}
 .academy-content .academy-welcome h1{font:700 16px/1.35 var(--sans);margin:0}
 .academy-nav nav.academy-main-nav{gap:4px}
 .academy-main-nav a,.bottom-nav a{border-radius:8px;background:var(--bg)}
-.academy-nav .academy-main-nav a{padding:6px 9px;color:var(--accent-text)}
+.academy-nav .academy-main-nav a{padding:6px 8px;color:var(--accent-text);font-size:12px}
 .academy-main-nav a:hover,.academy-main-nav a:focus-visible,.bottom-nav a:hover{background:var(--pink);color:var(--primary-text)}
 .public-site-link{display:inline-flex;align-items:center;gap:5px;padding:7px 9px;border:1px solid var(--line);border-radius:8px;background:var(--cream);color:var(--accent-text);font-weight:800;white-space:nowrap}
 .public-site-link:hover{background:var(--pink);color:var(--primary-text)}
@@ -258,8 +259,15 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
 .academy-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;border-top:1px solid var(--line);padding:16px 0 20px}
 .academy-footer .foot-nav{display:flex;gap:15px;flex-wrap:wrap}
 .catalog-tabs{display:flex;align-items:center;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--line);padding-bottom:9px;margin-bottom:12px}
-.catalog-tabs .btn{padding:6px 12px;background:var(--paper)}
+.catalog-tabs .btn{padding:6px 12px;background:var(--paper);font-size:13px;min-height:38px}
 .catalog-tabs a[aria-current=page],.catalog-tabs a:hover{background:var(--pink);border-color:var(--primary-active);color:var(--primary-text)}
+.section-search{display:flex;align-items:end;flex-wrap:wrap;gap:10px;margin:0 0 16px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--paper)}
+.section-search label{display:grid;gap:4px;min-width:0;font-size:13px;font-weight:700}
+.section-search-query{flex:1 1 205px}
+.section-search input[type=search],.section-search select{width:100%;min-height:42px;padding:8px 10px;border:1px solid var(--line);border-radius:7px;color:var(--primary-text);background:var(--bg);font-size:14px;font-weight:400}
+.section-search-actions{display:flex;gap:6px;flex-wrap:wrap}
+.section-search-actions .btn{min-height:42px;padding:8px 12px;font-size:13px}
+.event-search-months{margin-bottom:12px}
 .catalog-results{margin-top:14px}
 .catalog-back{color:var(--accent-text);background:var(--pink);padding:6px 10px;margin-bottom:10px}
 .catalog-back:hover{background:var(--primary)}
@@ -284,16 +292,18 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
 .academy-hero-braun{--hero-tint:#e5eadc}
 .academy-hero-ambassadors{--hero-tint:#e0e8ee}
 .academy-hero-events{--hero-tint:#f2e3d4}
-.academy-heroes-home .academy-hero:nth-last-child(-n+2){grid-column:span 3}
+.academy-hero-coming-soon{--hero-tint:#ede4f0}
 .academy-hero-art{height:138px;overflow:hidden;background:var(--hero-tint)}
 .academy-hero-art img{display:block;width:100%;height:100%;object-fit:cover}
-.academy-hero-kenwood .academy-hero-art img{object-fit:contain}
+.academy-hero-coming-soon .academy-hero-art{display:grid;place-items:center}
+.academy-hero-clock{position:relative;width:62px;height:62px;border:5px solid var(--accent-text);border-radius:50%}
+.academy-hero-clock::before{position:absolute;top:10px;left:50%;width:16px;height:18px;content:"";border:solid var(--accent-text);border-width:0 0 4px 4px;border-radius:0 0 0 3px;transform:translateX(-2px)}
 .academy-hero-braun .academy-hero-art img{object-position:50% 53%}
 .academy-hero-ambassadors .academy-hero-art img{object-position:50% 34%}
 .academy-hero-body{display:flex;flex:1;flex-direction:column;gap:5px;padding:13px 15px}
-.academy-hero-title{font:400 clamp(19px,2.2vw,27px)/1.15 var(--serif);letter-spacing:-.02em}
-.academy-hero-body p{margin:0 0 8px;color:var(--secondary-text)}
-.academy-hero-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:auto;font-size:12px;font-weight:800;color:var(--accent-text)}
+.academy-hero-title{font:400 clamp(20px,2vw,25px)/1.15 var(--serif);letter-spacing:-.02em}
+.academy-hero-body p{margin:0 0 8px;color:var(--secondary-text);font-size:14px}
+.academy-hero-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-top:auto;font-size:13px;font-weight:800;color:var(--accent-text)}
 .academy-hero-arrow{display:grid;place-items:center;flex:0 0 30px;height:30px;border-radius:50%;background:var(--hero-tint);color:var(--primary-text)}
 .starter-program{margin:16px 0 20px;padding:14px 16px;border:1px solid var(--line);border-radius:12px;background:var(--paper);scroll-margin-top:115px}
 .starter-dashboard{background:var(--pink);margin-bottom:0}
@@ -310,11 +320,12 @@ button:disabled{opacity:.6;cursor:wait}.rich-text{font-size:15px;line-height:1.9
 .catalog-detail-nav{display:flex;flex-wrap:wrap;gap:8px}
 @media(max-width:780px){
   .academy-heroes{grid-template-columns:repeat(2,minmax(0,1fr))}
-  .academy-hero,.academy-heroes-home .academy-hero:nth-last-child(-n+2){grid-column:auto}
+  .academy-hero{grid-column:auto}
 }
 @media(max-width:520px){
   .academy-heroes{grid-template-columns:minmax(0,1fr);gap:10px}
   .academy-hero-art{height:125px}
   .academy-hero-body{padding:11px 12px}
+  .section-search input[type=search],.section-search select{font-size:16px}
   .starter-program{padding:12px}
 }

@@ -14,7 +14,7 @@ export const bodySchema = z.object({
   duration: z.number().int().min(1).max(2880).optional(), portions: z.number().int().min(1).max(100).optional(),
   model: z.string().max(120).default(''), assembly: z.string().max(5000).default(''),
   usage: z.string().max(5000).default(''), care: z.string().max(5000).default(''), mistakes: z.string().max(5000).default(''),
-  shoppingList: lines, prepPlan: lines, postKind: z.enum(['article','news','offer','faq']).optional(),
+  shoppingList: lines, prepPlan: lines, postKind: z.enum(['article','news','offer','faq','coming-soon']).optional(),
   city: z.string().max(120).optional(),venueAddress:z.string().trim().max(300).optional(),
   startsAt: z.iso.datetime({offset:true}).optional(), capacity: z.number().int().min(1).max(1000).optional(),
   equipmentBrand:z.enum(equipmentBrands).optional(),

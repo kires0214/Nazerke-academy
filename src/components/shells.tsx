@@ -31,7 +31,7 @@ export function AcademyShell({user,children,locale='ru'}:{user:Principal;childre
   const t=copy(locale);
   const academyNav=academyNavigation(locale);
   const mobileNav=[academyNav[0],academyNav[1],{href:'/academy/learn',label:t('Разделы','Sections')},
-    {href:'/academy/events',label:t('Встречи','Events')},academyNav.at(-1)!];
+    {href:'/academy/events',label:t('Встречи','Events')},{href:'/academy/coming-soon',label:t('Скоро','Soon')}];
   return <ReaderLanguageProvider locale={locale}><div className="wrap academy"><header className="academy-nav"><Logo name="Academy" href="/academy"/>
     <nav className="academy-main-nav" aria-label={t('Академия','Academy')}>{academyNav.map(({href,label})=><Link key={href} href={href}>{label}</Link>)}</nav>
     <div className="actions"><LanguageSwitch locale={locale}/>
