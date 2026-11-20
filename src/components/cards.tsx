@@ -8,9 +8,9 @@ export function Photo({name,alt,priority=false}:{name:string;alt:string;priority
 export function PageHead({title,description,kicker='JUICY Academy',lang}:{title:string;description?:string;kicker?:string;lang?:string}) {
   return <div className="page-head"><span className="eyebrow">{kicker}</span><h1 lang={lang}>{title}</h1>{description?<p lang={lang}>{description}</p>:null}</div>;
 }
-export function contentHref(node:Pick<Content,'kind'|'slug'>) {
+export function contentHref(node:Pick<Content,'kind'|'slug'>&Partial<Pick<Content,'data'>>) {
   const route:Record<string,string>={lesson:'lessons',attachment:'attachments',recipe:'recipes',collection:'collections',course:'courses',post:'news',material:'materials',event:'events',section:'sections',module:'modules'};
-  return '/academy/'+(route[node.kind]??'content')+'/'+node.slug;
+  return '/academy/'+(node.kind==='post'&&node.data?.postKind==='offer'?'offers':route[node.kind]??'content')+'/'+node.slug;
 }
 export function ContentCards({nodes,linkFor=contentHref,locale='ru'}:{nodes:CatalogNode[];linkFor?:(node:Content)=>string;locale?:SiteLocale}) {
   const t=copy(locale);

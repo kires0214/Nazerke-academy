@@ -1,10 +1,12 @@
 import Link from 'next/link';
-import { notFound } from 'next/navigation';
-import { ContentCards,PageHead,Photo,contentHref } from '@/components/cards';
+import { notFound,redirect } from 'next/navigation';
+import { ContentCards,PageHead,contentHref } from '@/components/cards';
 import { AcademySections } from '@/components/academy-sections';
+import { ArticleCards,builtinArticles } from '@/components/public-content';
+import { CatalogTabs } from '@/components/catalog-tabs';
 import { CityInterestForm,SupportForm } from '@/components/actions';
 import { EventCalendar } from '@/components/event-calendar';
-import { equipmentBrand,equipmentBrands } from '@/lib/catalog';
+import { catalogGroups,groupFor,sectionFor,trackLabels } from '@/lib/catalog';
 import { filterContent } from '@/lib/content';
 import { withDb } from '@/lib/db';
 import { eventsWithSeats } from '@/lib/events';
@@ -15,53 +17,55 @@ import { siteLocale } from '@/lib/site-locale';
 import { supportHistory } from '@/lib/support';
 
 export default async function Page({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<Record<string,string|undefined>>}) {
-  const [{section},search,{user,nodes,catalog,progress,favorites,links},locale]=await Promise.all([params,searchParams,academyData(),siteLocale()]);
+  const [{section},search,{user,nodes,catalog,progress,favorites,articleFavorites,links},locale]=await Promise.all([params,searchParams,academyData(),siteLocale()]);
   const t=copy(locale);
   if(section==='learn') return <><PageHead title={t('Разделы','Sections')}/><AcademySections locale={locale}/></>;
-  if(section==='kenwood'||section==='braun') {
-    const brand=section==='kenwood'?'Kenwood':'Braun';
-    const programs=catalog.filter(node=>node.kind==='course'&&node.audience!=='ambassador'&&equipmentBrand(node.data)===brand);
-    const intro=section==='kenwood'?programs.find(node=>node.slug==='kenwood'):undefined;
+  if(section==='kenwood'||section==='braun'||section==='ambassadors') {
+    const track=section==='ambassadors'?'ambassador':section;
+    const group=catalogGroups.find(group=>group===search.group)??'training';
+    const label=track==='ambassador'?t('Школа Амбассадора','Ambassador School'):trackLabels[track];
+    const items=catalog.filter(node=>!node.parent_id&&node.kind!=='event'&&node.data.postKind!=='offer'&&
+      sectionFor(node.audience,node.data)===track&&groupFor(node.kind,node.data)===group);
+    const intro=group==='training'&&track==='kenwood'?items.find(node=>node.kind==='course'&&node.slug==='kenwood'):undefined;
     const modules=new Set(intro?catalog.filter(node=>node.parent_id===intro.id).map(node=>node.id):[]);
     const lessons=catalog.filter(node=>node.kind==='lesson'&&node.parent_id&&modules.has(node.parent_id));
-    const attachments=catalog.some(node=>node.kind==='attachment'&&node.audience!=='ambassador'&&equipmentBrand(node.data)===brand);
-    const otherPrograms=programs.filter(node=>node.id!==intro?.id);
+    const cards=items.filter(node=>node.id!==intro?.id||!lessons.length);
     return <>
-      <PageHead title={brand}/>
-      {attachments?<Link className="btn btn-outline" href={'/academy/attachments?brand='+brand}>{t('Насадки','Attachments')} →</Link>:null}
-      {intro?<section className="section equipment-intro"><h2 lang={contentLang(intro.language)}>{intro.title}</h2>
-        {lessons.length?<div className="course-steps">{lessons.map((node,index)=><Link href={contentHref(node)} className="step" key={node.id}>
+      <PageHead title={label}/>
+      <CatalogTabs section={track} active={group} locale={locale}/>
+      {lessons.length&&intro?<section className="section equipment-intro"><h2 lang={contentLang(intro.language)}>{intro.title}</h2>
+        <div className="course-steps">{lessons.map((node,index)=><Link href={contentHref(node)} className="step" key={node.id}>
           <span className="step-num">{progress.some(p=>p.lesson_id===node.id&&p.completed_at)?'✓':index+1}</span>
-          <div className="step-body" lang={contentLang(node.language)}><strong>{node.title}</strong><small>{node.locked?t('Требуется допуск','Access required'):node.description}</small></div>
-        </Link>)}</div>:<ContentCards nodes={[intro]} locale={locale}/>}</section>:null}
-      {otherPrograms.length?<section className="section"><h2>{t('Курсы','Courses')}</h2><ContentCards nodes={otherPrograms} locale={locale}/></section>:null}
-      {!intro&&!otherPrograms.length&&!attachments?<ContentCards nodes={[]} locale={locale}/>:null}
+          <div className="step-body" lang={contentLang(node.language)}><strong>{node.title}</strong>
+            <small>{node.locked?t('Требуется допуск','Access required'):node.description}</small></div>
+        </Link>)}</div></section>:null}
+      {cards.length||!lessons.length?<div className="catalog-results"><ContentCards nodes={cards} locale={locale}/></div>:null}
     </>;
   }
-  if(section==='ambassadors') return <>
-    <section className="academy-hero"><div className="copy"><h1>{t('Школа Амбассадора','Ambassador School')}</h1>
-      <p>{t('Знание продукта, личный бренд, практика и наставничество.','Product expertise, personal branding, practice and mentoring.')}</p></div>
-      <div className="amb-photo"><Photo name="nazerke-ambassador.avif" alt={t('Назерке — школа амбассадоров','Nazerke at Ambassador School')}/></div></section>
-    <section className="section"><ContentCards nodes={catalog.filter(node=>node.kind==='course'&&node.audience==='ambassador')} locale={locale}/></section></>;
+  if(section==='attachments'&&(search.brand==='Kenwood'||search.brand==='Braun')){
+    redirect('/academy/'+search.brand.toLowerCase()+'?group=attachments');
+  }
+  if(section==='offers')return <>
+    <PageHead title={t('Акции','Offers')}/>
+    <ContentCards nodes={catalog.filter(node=>node.kind==='post'&&node.data.postKind==='offer')} locale={locale}/>
+  </>;
   if(section==='profile') return <><PageHead title={user.display_name}/>
     <div className="info-box"><h2>{t('Мой прогресс','My progress')}</h2><p>{t('Завершено уроков','Lessons completed')}: {progress.filter(p=>p.completed_at).length}</p>
       {progress.map(p=>{const node=nodes.find(n=>n.id===p.lesson_id);return node?<p key={p.lesson_id}><Link href={contentHref(node)}>{node.title} {p.completed_at?'✓':`· ${p.position_seconds} ${t('сек','sec')}`}</Link></p>:null;})}</div>
-    <h2>{t('Избранное','Favorites')}</h2><ContentCards nodes={nodes.filter(node=>favorites.includes(node.id))} locale={locale}/>
+    <h2>{t('Избранное','Favorites')}</h2>
+    {nodes.some(node=>favorites.includes(node.id))?<ContentCards nodes={nodes.filter(node=>favorites.includes(node.id))} locale={locale}/>:null}
+    <ArticleCards items={builtinArticles(locale).filter(a=>articleFavorites.includes(a.slug))}
+      locale={locale} favorites={{articles:articleFavorites,content:favorites}}/>
+    {!articleFavorites.length&&!nodes.some(node=>favorites.includes(node.id))?
+      <p className="empty">{t('Избранное пока пусто.','Your favorites are empty.')}</p>:null}
     <p className="info-box">{t('Сменить зарегистрированный браузер можно через поддержку JUICY.','Contact JUICY support to change your registered browser.')}</p></>;
-  if(section==='more'){
-    const more=[['materials',t('Материалы','Resources')],['club',t('JUICY Club и поддержка','JUICY Club and support')],
-      ['collections',t('Подборки рецептов','Recipe collections')],['news',t('Новости','News')]];
-    return <><PageHead title={t('Ещё в JUICY','More from JUICY')}/><nav className="course-steps">
-      {more.map(([href,label])=><Link className="step" key={href} href={'/academy/'+href}>{label} →</Link>)}
-      <Link className="step" href="/">{t('На сайт JUICY','JUICY public site')} →</Link>
-    </nav></>;
-  }
-  if(section==='club') {
+  if(section==='more')redirect('/academy/learn');
+  if(section==='club')redirect('/academy/contacts');
+  if(section==='contacts') {
     const tokens=await pageTokens();
     const history=await withDb(async db=>supportHistory(db,await principal(db,tokens)));
     const bot=process.env.TELEGRAM_LOGIN_BOT_NAME;
-    return <><PageHead title="JUICY Club" description={t('Поддержка и новости нашего сообщества.','Support and news from our community.')}/>
-      <ContentCards nodes={nodes.filter(node=>node.kind==='post'&&['faq','offer'].includes(node.data.postKind??''))} locale={locale}/>
+    return <><PageHead title={t('Контакты','Contact')} description={t('Поддержка и вопросы о доступе.','Support and access questions.')}/>
       <section className="info-box"><h2>{t('Напишите команде','Write to the team')}</h2>
         <div className="support-history">{history.slice().reverse().map(message=><div className="support-message" key={String(message.id)}>
           <strong>{message.sender==='human'?t('Сотрудник JUICY','JUICY team'):t('Вы','You')}</strong><p>{String(message.body)}</p></div>)}</div>
@@ -81,13 +85,11 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
   if(!Object.hasOwn(sections,section))notFound();
   const {title,kind}=sections[section];
   const query=new URLSearchParams(Object.entries(search).filter((pair):pair is [string,string]=>typeof pair[1]==='string'));
-  const brand=equipmentBrands.find(brand=>brand===search.brand);
   let items=filterContent(catalog.filter(node=>!kind||node.kind===kind),query);
-  if(section==='attachments'&&brand)items=items.filter(node=>node.audience!=='ambassador'&&equipmentBrand(node.data)===brand);
   if(section==='recipes'&&search.attachment)items=items.filter(node=>links.some(link=>link.source_id===node.id&&nodes.some(item=>item.id===link.target_id&&item.slug===search.attachment)));
   const categories=[...new Set(nodes.filter(node=>node.kind==='recipe').map(node=>node.data.category).filter(Boolean))];
   const language=contentLanguages.find(code=>code===search.language)??'';
-  return <><PageHead title={brand&&section==='attachments'?`${brand} · ${title}`:title}/>
+  return <><PageHead title={title}/>
     {section==='recipes'||section==='search'?<form className="filters" method="GET">
       <label><span className="sr-only">{t('Поиск','Search')}</span><input name="q" placeholder={t('Название рецепта, урока или насадки','Recipe, lesson or attachment name')} defaultValue={search.q}/></label>
       <label><span className="sr-only">{t('Язык материала','Content language')}</span><select name="language" defaultValue={language}>

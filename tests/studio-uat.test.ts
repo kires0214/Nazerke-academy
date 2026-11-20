@@ -253,3 +253,49 @@ test('catalog cards remain visible while track grants protect detail, attachment
     assert.ok(!(await f.run(db=>academyCatalog(db,braun.p))).catalog.some(item=>item.id===lesson));
   }finally{await f.close();}
 });
+
+test('catalog placement is independent of multi-track access and offer teasers hide their contents',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f),tech=await f.account('techadmin'),kenwood=await f.account();
+    const braun=await f.account('student','approved',['academy','braun']);
+    const school=await f.account('student','approved',['academy','ambassador']);
+    const body='Synthetic private offer detail';
+    const offer=await f.run(db=>saveContent(db,tech.p,{
+      kind:'post',title:'Synthetic offer',slug:'synthetic-catalog-offer',audience:'ambassador',status:'published',
+      data:{catalogSection:'kenwood',catalogGroup:'recipes',tracks:['braun','ambassador'],postKind:'offer',body},
+    }));
+    const card=(await f.run(db=>academyCatalog(db,kenwood.p))).catalog.find(node=>node.id===offer);
+    assert.ok(card?.locked);
+    assert.equal(card.data.catalogSection,'kenwood');
+    assert.equal(card.data.catalogGroup,'recipes');
+    assert.equal(card.data.postKind,'offer');
+    assert.equal(card.data.body,'');
+    for(const actor of [braun,school]){
+      const result=await (await call('content','GET',actor.tokens)).json();
+      assert.equal(result.find((node:{id:string})=>node.id===offer)?.data.body,body);
+    }
+    for(const tokens of [undefined,kenwood.tokens]){
+      const result=await (await call('content','GET',tokens)).json();
+      assert.ok(!result.some((node:{id:string})=>node.id===offer));
+    }
+  }finally{await f.close();}
+});
+
+test('built-in article favorites require approval and stay private to one account',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f),first=await f.account(),second=await f.account(),pending=await f.account('student','pending',[]);
+    const route='favorites/article',body={article:'kenwood',enabled:true};
+    assert.equal((await call(route,'POST',undefined,body)).status,401);
+    assert.equal((await call(route,'POST',pending.tokens,body)).status,403);
+    assert.equal((await call(route,'POST',first.tokens,{...body,article:'unknown'})).status,400);
+    assert.equal((await call(route,'POST',first.tokens,{...body,userId:second.id})).status,400);
+    for(let i=0;i<2;i++)assert.equal((await call(route,'POST',first.tokens,body)).status,200);
+    assert.equal((await call(route,'POST',second.tokens,{...body,enabled:false})).status,200);
+    assert.deepEqual((await f.engine.query('SELECT user_id,article_key FROM builtin_article_favorites')).rows,
+      [{user_id:first.id,article_key:'kenwood'}]);
+    assert.equal((await call(route,'POST',first.tokens,{...body,enabled:false})).status,200);
+    assert.deepEqual((await f.engine.query('SELECT user_id FROM builtin_article_favorites')).rows,[]);
+  }finally{await f.close();}
+});

@@ -5,8 +5,10 @@ export type StudioAudience = ContentInput['audience'];
 
 export const kindLabels: Record<StudioKind,string> = {
   section:'Раздел', course:'Курс', module:'Модуль', lesson:'Урок', attachment:'Насадка',
-  recipe:'Рецепт', collection:'Подборка', post:'Статья, новость или FAQ', material:'Памятка или файл', event:'Мастер-класс',
+  recipe:'Рецепт', collection:'Подборка', post:'Публикация', material:'Памятка или файл', event:'Мастер-класс',
 };
+export const publicationLabels={article:'Статья',news:'Новость',offer:'Акция',faq:'FAQ'} as const;
+export type PublicationType=keyof typeof publicationLabels;
 export const studioKindGroups = [
   {label:'Обучение', kinds:['course','module','lesson']},
   {label:'Кулинария', kinds:['recipe','attachment','collection']},

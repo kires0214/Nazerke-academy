@@ -1,5 +1,5 @@
 'use client';
-import { useState } from 'react';
+import { useRef,useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { copy,type SiteLocale } from '@/lib/locale';
 import { useReaderLocale } from './reader-language';
@@ -75,6 +75,24 @@ export function LogoutButton() {
       }
     }}>{pending?t('Выходим…','Signing out…'):t('Выйти','Sign out')}</button>
     <span role="status">{status}</span>
+  </div>;
+}
+
+export function FavoriteButton({url,target,saved,title}:{url:string;target:Record<string,string>;saved:boolean;title?:string}) {
+  const router=useRouter(),locale=useReaderLocale(),t=copy(locale);
+  const busy=useRef(false);
+  const [pending,setPending]=useState(false),[status,setStatus]=useState('');
+  const label=saved?t('Убрать из избранного','Remove from favorites'):t('В избранное','Save to favorites');
+  return <div className="favorite-control">
+    <button className="btn btn-outline favorite-button" type="button" disabled={pending} aria-pressed={saved}
+      aria-label={title?`${label}: ${title}`:label} onClick={async()=>{
+        if(busy.current)return;
+        busy.current=true;setPending(true);setStatus('');
+        try{await apiCall(url,{...target,enabled:!saved},'POST',undefined,locale);router.refresh();}
+        catch(error){setStatus((error as Error).message);}
+        finally{busy.current=false;setPending(false);}
+      }}><span aria-hidden="true">{saved?'♥':'♡'}</span>{label}</button>
+    {status?<p role="status">{status}</p>:null}
   </div>;
 }
 export function TelegramCodeForm() {

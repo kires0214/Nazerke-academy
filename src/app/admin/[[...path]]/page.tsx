@@ -5,14 +5,15 @@ import { RegistrationControls,StaffControls,StudentTrackControls } from '@/compo
 import { ActionButton,SupportForm } from '@/components/actions';
 import { ContentCards } from '@/components/cards';
 import { ContentPresentation,ContentProgram,EventDetails,type PresentationMedia } from '@/components/content-presentation';
-import { kindLabels,mediaDetail,mediaKindLabels,mediaStatusLabels,statusLabels,type StudioKind } from '@/components/studio-labels';
+import { kindLabels,mediaDetail,mediaKindLabels,mediaStatusLabels,publicationLabels,statusLabels,type PublicationType,type StudioKind } from '@/components/studio-labels';
+import { groupLabel } from '@/components/catalog-tabs';
 import { withDb } from '@/lib/db';
 import { pageTokens,studioData } from '@/lib/pages';
 import { hasGrant,isStudioRole,principal } from '@/lib/security';
 import { canDeleteContent,canEditContent,kinds,listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
-import { contentTracks,learningTracks,orderSourceLabels,trackLabels } from '@/lib/catalog';
+import { catalogGroups,contentTracks,groupFor,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
 import { pendingRegistrationRequests } from '@/lib/telegram-access';
 import { auditPage,canManageMedia,readAuditFilter } from '@/lib/activity';
 import { studioAccounts } from '@/lib/accounts';
@@ -24,6 +25,7 @@ const contentSections=[
   {slug:'recipes',label:'Рецепты и подборки',kinds:['recipe','attachment','collection']},
   {slug:'sections',label:'Разделы и файлы',kinds:['section','material']},
   {slug:'announcements',label:'Статьи и анонсы',kinds:['post']},
+  {slug:'offers',label:'Акции',kinds:['post']},
   {slug:'events',label:'Мастер-классы',kinds:['event']},
 ];
 const accountRoles:Record<string,string>={student:'Ученик',admin:'Администратор',techadmin:'Tech Admin'};
@@ -43,20 +45,30 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const status=typeof query.status==='string'&&Object.hasOwn(statusLabels,query.status)?query.status:'';
       const language=query.language==='RU'||query.language==='EN'?query.language:'';
       const track=learningTracks.find(value=>value===query.track);
+      const placement=learningTracks.find(value=>value===query.section);
+      const group=catalogGroups.find(value=>value===query.group);
       const sectionUrl=contentSection.slug?'/admin/'+contentSection.slug:'/admin';
       const byId=new Map(nodes.map(node=>[node.id,node]));
-      const displayed=nodes.filter(node=>
+      const displayed=nodes.filter(node=>{
+        const parent=byId.get(node.parent_id??'');
+        const root=byId.get(parent?.parent_id??'')??parent??node;
+        return (
         (!contentSection.kinds.length||contentSection.kinds.includes(node.kind))&&(!status||node.status===status)&&(!language||node.language===language)&&
-        (!track||node.audience!=='public'&&contentTracks(node.audience,(byId.get(byId.get(node.parent_id??'')?.parent_id??'')??byId.get(node.parent_id??'')??node).data).some(value=>value===track))&&
+        (contentSection.slug==='offers'?node.data.postKind==='offer':contentSection.slug!=='announcements'||node.data.postKind!=='offer')&&
+        (!placement||sectionFor(root.audience,root.data)===placement)&&(!group||groupFor(root.kind,root.data)===group)&&
+        (!track||root.audience!=='public'&&contentTracks(root.audience,root.data).some(value=>value===track))&&
         (!term||`${node.title} ${node.slug}`.toLocaleLowerCase('ru').includes(term.toLocaleLowerCase('ru'))));
+      });
+      const filtered=term||status||language||track||placement||group;
       return <>
         <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>
           {contentSection.slug==='events'&&canEditContent(user,'event')?<Link className="btn btn-dark" href="/admin/new?kind=event">Создать мастер-класс</Link>:
+            contentSection.slug==='offers'&&canEditContent(user,'post')?<Link className="btn btn-dark" href="/admin/new?kind=post&publication=offer">Создать акцию</Link>:
             kinds.some(kind=>canEditContent(user,kind))?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
         <nav className="studio-content-nav" aria-label="Виды материалов">
           {contentSections.map(section=><Link key={section.slug} href={section.slug?'/admin/'+section.slug:'/admin'} aria-current={section===contentSection?'page':undefined}>{section.label}</Link>)}
         </nav>
-        <form className="filters studio-filters" method="GET" action={sectionUrl} key={sectionUrl+term+status+language+track}>
+        <form className="filters studio-filters" method="GET" action={sectionUrl} key={sectionUrl+term+status+language+track+placement+group}>
           <label>Название или адрес<input name="q" type="search" defaultValue={term} maxLength={120}/></label>
           <label>Статус<select name="status" defaultValue={status}><option value="">Все статусы</option>
             {Object.entries(statusLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label>
@@ -64,16 +76,20 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
             <option value="RU">Русский</option><option value="EN">English</option></select></label>
           <label>Допуск<select name="track" defaultValue={track??''}><option value="">Все допуски</option>
             {learningTracks.map(value=><option key={value} value={value}>{trackLabels[value]}</option>)}</select></label>
+          <label>Раздел<select name="section" defaultValue={placement??''}><option value="">Все разделы</option>
+            {learningTracks.map(value=><option key={value} value={value}>{trackLabels[value]}</option>)}</select></label>
+          <label>Подгруппа<select name="group" defaultValue={group??''}><option value="">Все подгруппы</option>
+            {catalogGroups.map(value=><option key={value} value={value}>{groupLabel('ru',value)}</option>)}</select></label>
           <button className="btn btn-dark" type="submit">Найти</button>
-          {term||status||language||track?<Link className="btn btn-outline" href={sectionUrl}>Сбросить</Link>:null}
+          {filtered?<Link className="btn btn-outline" href={sectionUrl}>Сбросить</Link>:null}
         </form>
         {displayed.length?<div className="course-steps">{displayed.map(node=>{
           const editable=canEditContent(user,node.kind,node.status);
           return <Link className="step" key={node.id} href={`/admin/${editable?'edit':'preview'}/${node.id}`}>
-            <div className="step-body"><strong>{node.title}</strong><small>{kindLabels[node.kind as StudioKind]} · {node.language==='KZ'?'Архивный язык':node.language} · {statusLabels[node.status]}</small></div>
+            <div className="step-body"><strong>{node.title}</strong><small>{node.kind==='post'?publicationLabels[node.data.postKind??'article']:kindLabels[node.kind as StudioKind]} · {node.language==='KZ'?'Архивный язык':node.language} · {statusLabels[node.status]}</small></div>
             <span className="small-link">{editable?'Редактировать':'Открыть'}</span>
           </Link>;
-        })}</div>:<p className="empty">{term||status||language||track?'По этому запросу материалы не найдены.':'В этом разделе пока нет материалов.'}</p>}
+        })}</div>:<p className="empty">{filtered?'По этому запросу материалы не найдены.':'В этом разделе пока нет материалов.'}</p>}
       </>;
     }
     if(['new','edit','preview'].includes(path[0])) {
@@ -81,7 +97,8 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const nodes=await listContent(db,user,true),node=nodes.find(n=>n.id===path[1]);if(path[0]!=='new'&&!node)notFound();
       const allowedKinds=kinds.filter(kind=>canEditContent(user,kind));
       if(path[0]==='new'&&!allowedKinds.length)notFound();
-      const initialKind=path[0]==='new'?(await searchParams).kind:undefined;
+      const initial=path[0]==='new'?await searchParams:{};
+      const publication=Object.keys(publicationLabels).find(type=>type===initial.publication) as PublicationType|undefined;
       const editable=node?canEditContent(user,node.kind,node.status):hasGrant(user,'content.edit');
       const deleteAction=node&&node.status!=='published'&&canDeleteContent(user,node.kind)?<ActionButton url={'/api/studio/content/'+node.id} method="DELETE" label="Удалить материал" confirm="Удалить материал навсегда?" goTo="/admin"/>:null;
       if(path[0]==='preview'&&node){
@@ -109,11 +126,13 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const media=(await db.query<{id:string;kind:string;state:string;created_at:Date;file_name:string|null}>(`SELECT id,kind,state,created_at,file_name
         FROM media WHERE id IN (SELECT id FROM media ORDER BY created_at DESC LIMIT 200) OR id=ANY($1::uuid[])
         ORDER BY created_at DESC`,[mediaIds])).rows.map(file=>({...file,name:file.file_name??undefined,created_at:file.created_at.toISOString()}));
-      const choices=nodes.map(({id,title,slug,kind,status,parent_id,audience})=>({id,title,slug,kind,status,parent_id,audience}));
+      const choices=nodes.map(({id,title,slug,kind,status,parent_id,audience,data})=>({id,title,slug,kind,status,parent_id,audience,
+        data:{catalogSection:data.catalogSection,catalogGroup:data.catalogGroup,equipmentBrand:data.equipmentBrand,tracks:data.tracks}}));
       return <><p><Link className="small-link" href="/admin">← Все материалы</Link></p><h1>{node?node.title:'Новый материал'}</h1>
         {node?<p><Link className="btn btn-outline" href={previewHref(node)}>Предпросмотр сохранённой версии</Link></p>:null}
         <CmsEditor key={node?.id??'new'} node={node} nodes={choices} media={media} links={links} mediaIds={mediaIds}
-          allowedKinds={allowedKinds} initialKind={allowedKinds.find(kind=>kind===initialKind)} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}
+          allowedKinds={allowedKinds} initialKind={allowedKinds.find(kind=>kind===initial.kind)} initialPostKind={publication}
+          canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}
           canUpload={hasGrant(user,'media.upload')}/>
         {deleteAction?<div className="detail-actions">{deleteAction}</div>:null}
       </>;

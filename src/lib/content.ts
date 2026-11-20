@@ -4,7 +4,7 @@ import { check } from './errors';
 import { audit, canLearn, hasGrant, requireGrant, type Principal, type Grant } from './security';
 import { changesToPublishedContent,queueContentNotice } from './content-notices';
 
-import { kinds,assetNames,equipmentBrands,contentTracks,learningTracks } from './catalog';
+import { kinds,assetNames,equipmentBrands,catalogGroups,contentTracks,learningTracks } from './catalog';
 import { contentLanguages } from './locale';
 export { kinds,assetNames } from './catalog';
 const lines = z.array(z.string().trim().min(1).max(2000)).max(100).default([]);
@@ -18,6 +18,8 @@ export const bodySchema = z.object({
   city: z.string().max(120).optional(),venueAddress:z.string().trim().max(300).optional(),
   startsAt: z.iso.datetime({offset:true}).optional(), capacity: z.number().int().min(1).max(1000).optional(),
   equipmentBrand:z.enum(equipmentBrands).optional(),
+  catalogSection:z.enum(learningTracks).optional(),
+  catalogGroup:z.enum(catalogGroups).optional(),
   tracks:z.array(z.enum(learningTracks)).min(1).max(learningTracks.length).refine(items=>new Set(items).size===items.length).optional(),
 }).strict();
 export const contentSchema = z.object({
@@ -50,7 +52,8 @@ function publishedChain(node:Content,byId:ReadonlyMap<string,Content>) {
 }
 function canReadChain(chain:Content[],user?:Principal) {
   const root=chain.at(-1);
-  return !!root&&chain.every(item=>item.audience==='public'||user&&canLearn(user,item.audience,contentTracks(root.audience,root.data)));
+  return !!root&&(chain.every(item=>item.audience==='public')||
+    !!user&&canLearn(user,'academy',contentTracks(root.audience,root.data)));
 }
 export function visible(node:Content,all:Content[],user?:Principal) {
   return canReadChain(publishedChain(node,new Map(all.map(item=>[item.id,item]))),user);
@@ -75,7 +78,8 @@ export async function academyCatalog(db:Db,user:Principal) {
       nodes.push(node);
       catalog.push(node);
     }else{
-      const data=bodySchema.parse({equipmentBrand:node.data.equipmentBrand,
+      const data=bodySchema.parse({equipmentBrand:node.data.equipmentBrand,catalogSection:node.data.catalogSection,
+        catalogGroup:node.data.catalogGroup,postKind:node.kind==='post'?node.data.postKind:undefined,
         startsAt:node.kind==='event'?node.data.startsAt:undefined});
       catalog.push({...node,locked:true,description:'',data});
     }

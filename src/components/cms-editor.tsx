@@ -3,16 +3,19 @@
 import { useEffect,useRef,useState,useTransition } from 'react';
 import { useRouter } from 'next/navigation';
 import type { Content,ContentInput } from '@/lib/content';
-import { assetNames,contentTracks,equipmentBrand,equipmentBrands,type EquipmentBrand,type LearningTrack } from '@/lib/catalog';
+import { assetNames,catalogGroups,contentTracks,groupFor,learningTracks,sectionFor,trackLabels,type CatalogGroup,type LearningTrack } from '@/lib/catalog';
 import { contentLanguages } from '@/lib/locale';
+import { groupLabel } from './catalog-tabs';
 import { TrackChoices } from './staff-controls';
 import { putDirectVideo } from '@/lib/video-client';
 import { eventTimeFromInput,localEventTime } from '@/lib/event-time';
 import { apiCall,messageFor } from './actions';
 import { StudioPicker,type StudioOption } from './studio-picker';
-import { audienceLabels,kindLabels,mediaDetail,mediaKindLabels,statusLabels,studioKindGroups,type StudioAudience,type StudioKind,type StudioMedia } from './studio-labels';
+import { audienceLabels,kindLabels,mediaDetail,mediaKindLabels,publicationLabels,statusLabels,type PublicationType,type StudioAudience,type StudioKind,type StudioMedia } from './studio-labels';
 
-export type EditorChoice = Pick<Content,'id'|'title'|'slug'|'kind'|'status'|'parent_id'|'audience'>;
+export type EditorChoice = Pick<Content,'id'|'title'|'slug'|'kind'|'status'|'parent_id'|'audience'>&{
+  data:Pick<Content['data'],'catalogSection'|'catalogGroup'|'equipmentBrand'|'tracks'>;
+};
 const coverLabels = [
   'Kenwood', 'Кухонный комбайн', 'Кубикорезка', 'Тестораскатка', 'Лапшерезка', 'Мясорубка',
   'Шнековая соковыжималка', 'Блендер', 'Крюк', 'Венчик', 'Паста', 'Бисквит', 'Хлеб', 'Манты',
@@ -26,14 +29,12 @@ function readEditorData(kind:StudioKind,form:FormData,previous?:Content['data'])
   const value=(key:string)=>String(form.get(key)??'');
   const lines=(key:string)=>value(key).split('\n').map(line=>line.trim()).filter(Boolean);
   const number=(key:string)=>value(key)?Number(value(key)):undefined;
-  const brand=value('equipmentBrand') as EquipmentBrand|'';
-  const base={...previous,body:value('body'),...(brand?{equipmentBrand:brand==='Braun'?'Braun' as const:undefined}:{})};
+  const base={...previous,body:value('body')};
   switch(kind){
     case 'recipe': return {...base,category:value('category'),duration:number('duration'),portions:number('portions'),
       ingredients:lines('ingredients'),steps:lines('steps'),settings:value('settings')};
     case 'attachment': return {...base,model:value('model'),assembly:value('assembly'),usage:value('usage'),care:value('care'),mistakes:value('mistakes')};
     case 'collection': return {...base,shoppingList:lines('shoppingList'),prepPlan:lines('prepPlan')};
-    case 'post': return {...base,postKind:value('postKind') as ContentInput['data']['postKind']};
     case 'event': return {...base,city:value('city').trim()||undefined,venueAddress:value('venueAddress').trim()||undefined,
       startsAt:value('startsAt')?eventTimeFromInput(value('startsAt')):undefined,capacity:number('capacity')};
     default: return base;
@@ -57,9 +58,6 @@ function KindFields({kind,data}:{kind:StudioKind;data?:Content['data']}) {
       {text('assembly','Сборка')}{text('usage','Применение')}{text('care','Уход')}{text('mistakes','Типичные ошибки')}
     </>;
     case 'collection': return <>{list('shoppingList','Общий список покупок')}{list('prepPlan','План подготовки')}</>;
-    case 'post': return <label>Рубрика<select name="postKind" defaultValue={data?.postKind??'article'}>
-      <option value="article">Статья</option><option value="news">Новости</option><option value="offer">Предложение</option><option value="faq">FAQ</option>
-    </select></label>;
     case 'event': return <>
       <div className="form-grid">
         <label>Город<input name="city" maxLength={120} defaultValue={data?.city}/></label>
@@ -73,13 +71,17 @@ function KindFields({kind,data}:{kind:StudioKind;data?:Content['data']}) {
   }
 }
 
-export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,canArchive,canUpload,links,mediaIds}:{
+export function CmsEditor({node,nodes,media,allowedKinds,initialKind,initialPostKind,canPublish,canArchive,canUpload,links,mediaIds}:{
   node?:Content;nodes:EditorChoice[];media:StudioMedia[];allowedKinds:StudioKind[];
-  initialKind?:StudioKind;canPublish:boolean;canArchive:boolean;canUpload:boolean;links:string[];mediaIds:string[];
+  initialKind?:StudioKind;initialPostKind?:PublicationType;canPublish:boolean;canArchive:boolean;canUpload:boolean;links:string[];mediaIds:string[];
 }) {
   const [kind,setKind]=useState<StudioKind>(()=>(node?.kind as StudioKind|undefined)??initialKind??allowedKinds[0]);
   const [tracks,setTracks]=useState<LearningTrack[]>(()=>[...contentTracks(node?.audience??'academy',node?.data??{})]);
-  const [audience,setAudience]=useState<StudioAudience>(()=>(node?.audience as StudioAudience|undefined)??'academy');
+  const [publication,setPublication]=useState<PublicationType>(node?.data.postKind??initialPostKind??'article');
+  const [section,setSection]=useState<LearningTrack>(()=>sectionFor(node?.audience??'academy',node?.data??{}));
+  const [group,setGroup]=useState<CatalogGroup|undefined>(node?.data.catalogGroup);
+  const [publicSelected,setPublicSelected]=useState(node?.audience==='public');
+  const tracksEdited=useRef(false);
   const [parentId,setParentId]=useState(node?.parent_id??'');
   const [cover,setCover]=useState(node?.cover??'');
   const [linked,setLinked]=useState(links);
@@ -96,8 +98,13 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
   const needsParent=kind==='module'||kind==='lesson';
   const parentLabel=kind==='module'?'Курс':'Модуль';
   const parent=needsParent?nodes.find(item=>item.id===parentId):undefined;
+  const root=nodes.find(item=>item.id===parent?.parent_id)??parent;
+  const audience:StudioAudience=publicSelected?'public':node?.audience==='ambassador'?'ambassador':'academy';
   const effectiveAudience=(parent?.audience as StudioAudience|undefined)??audience;
-  const selectTracks=!needsParent&&effectiveAudience==='academy';
+  const selectTracks=!needsParent&&effectiveAudience!=='public';
+  const activeGroup=group??groupFor(kind,{});
+  const typeValue=kind==='post'?'post:'+publication:kind;
+  const typeLabel=kind==='post'?publicationLabels[publication]:kindLabels[kind];
   const linkKind=kind==='recipe'?'attachment':recipeLinks.has(kind)?'recipe':null;
   const parentOptions=needsParent?nodes.filter(item=>item.kind===(kind==='module'?'course':'module')).map((item):StudioOption=>{
     const course=kind==='lesson'?nodes.find(candidate=>candidate.id===item.parent_id):undefined;
@@ -135,7 +142,9 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
         kind,slug:value('slug'),title:value('title'),description:value('description'),language:value('language') as ContentInput['language'],
         audience:effectiveAudience,status:nextStatus,parentId:needsParent?parentId:null,sortOrder:Number(value('sortOrder')),
         cover:cover||null,links:linkKind?linked:[],mediaIds:attached,version:node?.version,
-        data:{...readEditorData(kind,form,node?.data),tracks:selectTracks?tracks:undefined},
+        data:{...readEditorData(kind,form,node?.data),tracks:selectTracks?tracks:undefined,
+          postKind:kind==='post'?publication:undefined,catalogSection:needsParent?undefined:section,
+          catalogGroup:needsParent?undefined:activeGroup},
       };
       const result=await apiCall('/api/studio/content'+(node?'/'+node.id:''),payload,node?'PATCH':'POST');
       setNotice(nextStatus==='published'?'Материал опубликован.':'Материал сохранён.');
@@ -146,19 +155,23 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
     <p className="studio-meta">Статус <strong>{statusLabels[currentStatus]}</strong></p>
     <div className="studio-form-section">
       <div className="form-grid">
-        {node?<div className="studio-meta">Тип материала <strong>{kindLabels[kind]}</strong></div>:<label>Тип материала
-          <select value={kind} onChange={event=>{
-            const next=event.target.value as StudioKind;
+        {node?<>{kind==='post'?<label>Тип материала<select name="materialType" value={typeValue}
+          onChange={event=>setPublication(event.target.value.slice(5) as PublicationType)}>
+          {Object.entries(publicationLabels).map(([value,label])=><option key={value} value={'post:'+value}>{label}</option>)}
+        </select></label>:<div className="studio-meta">Тип материала <strong>{typeLabel}</strong></div>}</>:<label>Тип материала
+          <select name="materialType" value={typeValue} onChange={event=>{
+            const [value,subtype]=event.target.value.split(':');
+            const next=value as StudioKind;
             setKind(next);
+            if(subtype)setPublication(subtype as PublicationType);
             setParentId('');
             setLinked([]);
-            if(!publicKinds.has(next)&&audience==='public')setAudience('academy');
+            if(!publicKinds.has(next))setPublicSelected(false);
+            setGroup(undefined);
             setNotice('');
-          }}>{studioKindGroups.map(group=>{
-            const types=group.kinds.filter(item=>allowedKinds.includes(item));
-            return types.length?<optgroup key={group.label} label={group.label}>{types.map(item=>
-              <option key={item} value={item}>{kindLabels[item]}</option>)}</optgroup>:null;
-          })}</select>
+          }}>{allowedKinds.flatMap(item=>item==='post'?Object.entries(publicationLabels).map(([value,label])=>
+            <option key={'post:'+value} value={'post:'+value}>{label}</option>):
+            [<option key={item} value={item}>{kindLabels[item]}</option>])}</select>
         </label>}
         <label>Язык<select name="language" required defaultValue={node?.language==='KZ'?'':node?.language??'RU'}>
           {node?.language==='KZ'?<option value="" disabled>Выберите язык материала</option>:null}
@@ -169,20 +182,26 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,
       {needsParent?<div key={kind}>
         <StudioPicker label={parentLabel} emptyLabel={kind==='module'?'Выбрать курс':'Выбрать модуль'} options={parentOptions} value={parentId?[parentId]:[]}
           onChange={value=>setParentId(value[0]??'')} required/>
-        <p className="studio-hint">{parent?`Доступ: ${audienceLabels[effectiveAudience]} · из выбранного ${kind==='module'?'курса':'модуля'}`:
-          `Доступ берётся из ${kind==='module'?'курса':'модуля'}.`}</p>
-      </div>:<label>Кому видно<select name="audience" value={audience} onChange={event=>setAudience(event.target.value as StudioAudience)}>
-        <option value="academy">{audienceLabels.academy}</option><option value="ambassador">{audienceLabels.ambassador}</option>
-        {publicKinds.has(kind)?<option value="public">{audienceLabels.public}</option>:null}
-      </select></label>}
+        <p className="studio-hint">{root?
+          `${trackLabels[sectionFor(root.audience,root.data)]} / ${groupLabel('ru',groupFor(root.kind,root.data))} · ${contentTracks(root.audience,root.data).map(track=>trackLabels[track]).join(', ')}`:
+          'Раздел, подгруппа и допуски наследуются из курса.'}</p>
+      </div>:<>
+        <div className="form-grid">
+          <label>Раздел<select name="catalogSection" value={section} onChange={event=>{
+            const next=event.target.value as LearningTrack;
+            setSection(next);
+            if(!node&&!tracksEdited.current)setTracks([next]);
+          }}>
+            {learningTracks.map(track=><option key={track} value={track}>{trackLabels[track]}</option>)}
+          </select></label>
+          <label>Подгруппа<select name="catalogGroup" value={activeGroup} onChange={event=>setGroup(event.target.value as CatalogGroup)}>
+            {catalogGroups.map(value=><option key={value} value={value}>{groupLabel('ru',value)}</option>)}
+          </select></label>
+        </div>
+        <TrackChoices selected={tracks} onChange={value=>{tracksEdited.current=true;setTracks(value);}}
+          publicSelected={publicSelected} onPublicChange={publicKinds.has(kind)?setPublicSelected:undefined} joint/>
+      </>}
       <label>Краткое описание<textarea name="description" rows={3} defaultValue={node?.description} maxLength={2000}/></label>
-      {kind==='attachment'||kind==='course'&&effectiveAudience!=='ambassador'?<label>Раздел техники
-        <select name="equipmentBrand" defaultValue={equipmentBrand(node?.data??{})}
-          onChange={event=>setTracks(event.target.value==='Braun'?['braun']:['kenwood'])}>
-          {equipmentBrands.map(brand=><option value={brand} key={brand}>{brand}</option>)}
-        </select>
-      </label>:null}
-      {selectTracks?<TrackChoices selected={tracks} onChange={setTracks} joint/>:null}
       <details className="studio-disclosure" ref={ordering} open={!node?true:undefined}>
         <summary>Адрес и порядок</summary>
         <div className="form-grid">

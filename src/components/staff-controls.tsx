@@ -38,13 +38,16 @@ function GrantGroups({selected,setSelected}:{selected:string[];setSelected:(item
   </div>;
 }
 
-export function TrackChoices({selected,onChange,onlyAmbassador=false,joint=false}:{
+export function TrackChoices({selected,onChange,onlyAmbassador=false,joint=false,publicSelected=false,onPublicChange}:{
   selected:readonly LearningTrack[];onChange:(tracks:LearningTrack[])=>void;onlyAmbassador?:boolean;joint?:boolean;
+  publicSelected?:boolean;onPublicChange?:(checked:boolean)=>void;
 }) {
   return <fieldset className="track-choices">
-    <legend>{joint?'Доступ к материалу':'Учебные допуски'}</legend>
+    <legend>{joint?'Кому видно':'Учебные допуски'}</legend>
+    {onPublicChange?<label className="checkbox"><input type="checkbox" checked={publicSelected}
+      onChange={event=>onPublicChange(event.target.checked)}/>Все посетители</label>:null}
     {learningTracks.map(track=><label key={track} className="checkbox">
-      <input type="checkbox" checked={selected.includes(track)} disabled={onlyAmbassador&&track!=='ambassador'}
+      <input type="checkbox" checked={publicSelected||selected.includes(track)} disabled={publicSelected||onlyAmbassador&&track!=='ambassador'}
         onChange={event=>onChange(event.target.checked?[...selected,track]:selected.filter(item=>item!==track))}/>
       {trackLabels[track]}
     </label>)}

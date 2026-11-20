@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { withDb, type Db } from './db';
+import { builtinArticleKeys } from './catalog';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
 import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, isStudioRole, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
@@ -95,6 +96,13 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         if(data.enabled) await db.query('INSERT INTO favorites(user_id,content_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[p.id,data.contentId]);
         else await db.query('DELETE FROM favorites WHERE user_id=$1 AND content_id=$2',[p.id,data.contentId]);
         await audit(db,p.id,data.enabled?'favorite.add':'favorite.remove',data.contentId);
+        return {ok:true};
+      }
+      if(key==='favorites/article'&&method==='POST'){
+        const {article,enabled}=z.object({article:z.enum(builtinArticleKeys),enabled:z.boolean()}).strict().parse(await jsonBody(req));
+        if(enabled)await db.query('INSERT INTO builtin_article_favorites(user_id,article_key) VALUES($1,$2) ON CONFLICT DO NOTHING',[p.id,article]);
+        else await db.query('DELETE FROM builtin_article_favorites WHERE user_id=$1 AND article_key=$2',[p.id,article]);
+        await audit(db,p.id,enabled?'favorite.add':'favorite.remove','article:'+article);
         return {ok:true};
       }
       if(key==='support' && method==='GET') return supportHistory(db,p);
