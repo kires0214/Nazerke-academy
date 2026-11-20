@@ -34,11 +34,18 @@ test('public, academy and Studio shells each have one header; student has one pr
   assert.match(signedIn,/Вы вошли/);
   assert.match(signedIn,/<a[^>]+href="\/academy"[^>]*>В Академию<\/a>/);
   assert.doesNotMatch(signedIn,/<a[^>]+href="\/login"[^>]*>Войти<\/a>/);
-  assert.equal((academy.match(/aria-label="Мой профиль"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
+  assert.equal((academy.match(/href="\/academy\/profile"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
   assert.equal(academy.includes('by Nazerke'),false);assert.match(academy,/Мобильная навигация/);
   assert.match(academy,/href="\/academy">Главная<\/a><a[^>]+href="\/academy\/offers">Акции/);
   assert.match(publicHtml,/href="\/">Главная<\/a><a[^>]+href="\/offers">Акции/);
-  for(const html of [publicHtml,academy])assert.match(html,/aria-controls="header-navigation"/);
+  for(const html of [publicHtml,academy])assert.match(html,/class="header-navigation"/);
+  for(const html of [academy,signedIn,studio]){
+    assert.match(html,/<details class="profile-menu"><summary[^>]*>Профиль<\/summary>/);
+    assert.match(html,/<div class="profile-menu-panel">.*class="profile-menu-item language-switch"/);
+    assert.doesNotMatch(html,/header-square language-switch/);
+  }
+  assert.doesNotMatch(publicHtml,/class="profile-menu"/);
+  assert.doesNotMatch(academy,/href="\/academy\/coming-soon"/);
   assert.match(academy,/<footer[^>]*>.*href="\/academy\/contacts"/);
   for(const path of ['recipes','materials','club'])assert.ok(!academy.includes('href="/academy/'+path+'"'));
   assert.equal(publicHtml.includes('JUICY Studio'),false);

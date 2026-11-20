@@ -20,11 +20,9 @@ export function StarterProgram({locale,program,dashboard=false}:{
         {courses.length?<p>{remaining?progress:t('Стартовая программа пройдена.','You completed the starter program.')}</p>:
           <p>{t('Здесь появятся стартовые курсы, доступные по вашим допускам.','Starter courses will appear here when available to you.')}</p>}
       </div>
-      {dashboard?<Link className="btn btn-dark" href={starterProfileHref}>{t('Открыть программу','Open program')} <span aria-hidden="true">→</span></Link>:null}
     </div>
     {courses.length?<progress className="starter-progress" value={finished} max={courses.length} aria-label={progress}/>:null}
-    {dashboard&&remaining?<p className="starter-next">{t('Далее','Next')} <strong lang={contentLang(remaining.course.language)}>{remaining.course.title}</strong></p>:null}
-    {!dashboard&&courses.length?<ul className="starter-courses">
+    {courses.length?<ul className="starter-courses">
       {courses.map(({course,nextLesson,done,total})=><li key={course.id}>
         <div>
           <Link className="starter-course-name" href={contentHref(course)} lang={contentLang(course.language)}>{course.title}</Link>
