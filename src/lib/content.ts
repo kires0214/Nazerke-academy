@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { Db } from './db';
 import { check } from './errors';
 import { audit, canLearn, hasGrant, requireGrant, type Principal, type Grant } from './security';
+import { changesToPublishedContent,queueContentNotice } from './content-notices';
 
 import { kinds,assetNames } from './catalog';
 export { kinds,assetNames } from './catalog';
@@ -13,7 +14,8 @@ export const bodySchema = z.object({
   model: z.string().max(120).default(''), assembly: z.string().max(5000).default(''),
   usage: z.string().max(5000).default(''), care: z.string().max(5000).default(''), mistakes: z.string().max(5000).default(''),
   shoppingList: lines, prepPlan: lines, postKind: z.enum(['article','news','offer','faq']).optional(),
-  city: z.string().max(120).optional(), startsAt: z.iso.datetime({offset:true}).optional(), capacity: z.number().int().min(1).max(1000).optional(),
+  city: z.string().max(120).optional(),venueAddress:z.string().trim().max(300).optional(),
+  startsAt: z.iso.datetime({offset:true}).optional(), capacity: z.number().int().min(1).max(1000).optional(),
 }).strict();
 export const contentSchema = z.object({
   kind: z.enum(kinds), slug: z.string().regex(/^[a-z0-9][a-z0-9-]{0,99}$/), title: z.string().trim().min(1).max(200),
@@ -71,7 +73,11 @@ export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: s
     check(parent.audience === input.audience,400,'PARENT_AUDIENCE_MISMATCH');
     if(input.status === 'published') check(parent.status === 'published',400,'PUBLISH_PARENT_FIRST');
   } else check(!input.parentId,400,'ROOT_CONTENT_REQUIRED');
-  if(input.kind === 'event' && input.status === 'published') check(input.data.city && input.data.startsAt && input.data.capacity,400,'EVENT_DETAILS_REQUIRED');
+  if(input.kind==='event'&&input.status==='published'){
+    check(input.data.city?.trim()&&input.data.startsAt&&input.data.capacity,400,'EVENT_DETAILS_REQUIRED');
+    const legacyWithoutAddress=existing?.status==='published'&&!existing.data.venueAddress;
+    check(input.data.venueAddress||legacyWithoutAddress,400,'EVENT_ADDRESS_REQUIRED');
+  }
   if(input.kind === 'recipe' && input.status === 'published') check(input.data.ingredients.length && input.data.steps.length && input.data.duration && input.data.portions,400,'RECIPE_DETAILS_REQUIRED');
   if(input.audience === 'public') check(['post','event','section'].includes(input.kind),400,'PRIVATE_CONTENT_KIND');
   const linked = input.links.length ? (await db.query<Content & Record<string,unknown>>('SELECT * FROM content WHERE id=ANY($1::uuid[]) FOR SHARE',[input.links])).rows : [];
@@ -81,6 +87,8 @@ export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: s
   check(media.length===new Set(input.mediaIds).size,400,'MEDIA_NOT_FOUND');
   if(input.status === 'published') check(media.every(x=>x.state==='ready'),400,'MEDIA_NOT_READY');
   if(input.audience === 'public') check(media.every(x=>x.kind!=='video'),400,'PUBLIC_VIDEO_FORBIDDEN');
+  const changes=input.status==='published'&&existing&&(existing.published_at||existing.status==='published')?
+    await changesToPublishedContent(db,input,{...existing,data:bodySchema.parse(existing.data)}):null;
   const params = [input.kind,input.slug,input.title,input.description,input.language,input.audience,input.status,input.parentId,input.sortOrder,input.cover,JSON.stringify(input.data)];
   const { rows } = existing ? await db.query<{id:string}>(`UPDATE content SET kind=$1,slug=$2,title=$3,description=$4,language=$5,audience=$6,status=$7,parent_id=$8,sort_order=$9,cover=$10,data=$11,version=version+1,updated_at=now(),published_at=CASE WHEN $7='published' THEN coalesce(published_at,now()) ELSE published_at END WHERE id=$12 RETURNING id`,[...params,id]) :
     await db.query<{id:string}>(`INSERT INTO content(kind,slug,title,description,language,audience,status,parent_id,sort_order,cover,data,created_by,published_at) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,CASE WHEN $7='published' THEN now() END) RETURNING id`,[...params,actor.id]);
@@ -90,11 +98,7 @@ export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: s
   await db.query('DELETE FROM content_media WHERE content_id=$1',[contentId]);
   for(const mediaId of new Set(input.mediaIds)) await db.query('INSERT INTO content_media(content_id,media_id) VALUES($1,$2)',[contentId,mediaId]);
   await audit(db,actor.id,'content.'+input.status,contentId,{version:existing ? existing.version+1 : 1});
-  if(input.status==='published' && existing?.status!=='published') {
-    await db.query(`INSERT INTO notification_outbox(chat_id,body) SELECT u.telegram_id,$1 FROM users u WHERE u.status='approved' AND u.telegram_opt_in
-      AND ($2='public' OR u.role='techadmin' OR EXISTS(SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='academy')
-      AND ($2='academy' OR u.role='ambassador' AND EXISTS(SELECT 1 FROM access_entitlements e WHERE e.user_id=u.id AND e.scope='ambassador')))`,['JUICY: '+input.title,input.audience]);
-  }
+  if(input.status==='published')await queueContentNotice(db,contentId,input,changes);
   return contentId;
 }
 

@@ -1,11 +1,15 @@
 import Link from 'next/link';
+import { redirect } from 'next/navigation';
 import { PageHead } from '@/components/cards';
 import { TelegramCodeForm } from '@/components/actions';
 import { configuredTelegramBot } from '@/lib/telegram-access';
+import { publicPageUser } from '@/lib/pages';
 
 export const dynamic='force-dynamic';
 
-export default function Page() {
+export default async function Page() {
+  const user=await publicPageUser();
+  if(user)redirect(user.status==='approved'?'/academy':'/access');
   const bot=configuredTelegramBot();
   return <><PageHead title="Добро пожаловать в JUICY" description="Доступ в Академию открывается по приглашению."/>
     {bot?<section className="info-box login-box">

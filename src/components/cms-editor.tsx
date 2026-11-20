@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import type { Content,ContentInput } from '@/lib/content';
 import { assetNames } from '@/lib/catalog';
 import { putDirectVideo } from '@/lib/video-client';
+import { eventTimeFromInput,localEventTime } from '@/lib/event-time';
 import { apiCall,messageFor } from './actions';
 import { StudioPicker,type StudioOption } from './studio-picker';
 import { audienceLabels,kindLabels,mediaDetail,mediaKindLabels,statusLabels,studioKindGroups,type StudioAudience,type StudioKind,type StudioMedia } from './studio-labels';
@@ -30,7 +31,8 @@ function readEditorData(kind:StudioKind,form:FormData,previous?:Content['data'])
     case 'attachment': return {...base,model:value('model'),assembly:value('assembly'),usage:value('usage'),care:value('care'),mistakes:value('mistakes')};
     case 'collection': return {...base,shoppingList:lines('shoppingList'),prepPlan:lines('prepPlan')};
     case 'post': return {...base,postKind:value('postKind') as ContentInput['data']['postKind']};
-    case 'event': return {...base,city:value('city'),startsAt:value('startsAt')?new Date(value('startsAt')+'Z').toISOString():undefined,capacity:number('capacity')};
+    case 'event': return {...base,city:value('city').trim()||undefined,venueAddress:value('venueAddress').trim()||undefined,
+      startsAt:value('startsAt')?eventTimeFromInput(value('startsAt')):undefined,capacity:number('capacity')};
     default: return base;
   }
 }
@@ -55,20 +57,24 @@ function KindFields({kind,data}:{kind:StudioKind;data?:Content['data']}) {
     case 'post': return <label>Рубрика<select name="postKind" defaultValue={data?.postKind??'article'}>
       <option value="article">Статья</option><option value="news">Новости</option><option value="offer">Предложение</option><option value="faq">FAQ</option>
     </select></label>;
-    case 'event': return <div className="form-grid">
-      <label>Город<input name="city" maxLength={120} defaultValue={data?.city}/></label>
-      <label>Дата и время (UTC)<input name="startsAt" type="datetime-local" defaultValue={data?.startsAt?new Date(data.startsAt).toISOString().slice(0,16):undefined}/></label>
-      <label>Количество мест<input name="capacity" type="number" min={1} max={1000} defaultValue={data?.capacity}/></label>
-    </div>;
+    case 'event': return <>
+      <div className="form-grid">
+        <label>Город<input name="city" maxLength={120} defaultValue={data?.city}/></label>
+        <label>Адрес встречи<input name="venueAddress" maxLength={300} defaultValue={data?.venueAddress}/></label>
+        <label>Дата и время (Кызылорда)<input name="startsAt" type="datetime-local" defaultValue={data?.startsAt?localEventTime(data.startsAt):undefined}/></label>
+        <label>Общее количество мест<input name="capacity" type="number" min={1} max={1000} defaultValue={data?.capacity}/></label>
+      </div>
+      <p className="studio-hint">Свободные места рассчитываются по подтверждённым записям.</p>
+    </>;
     default: return null;
   }
 }
 
-export function CmsEditor({node,nodes,media,allowedKinds,canPublish,canArchive,canUpload,links,mediaIds}:{
+export function CmsEditor({node,nodes,media,allowedKinds,initialKind,canPublish,canArchive,canUpload,links,mediaIds}:{
   node?:Content;nodes:EditorChoice[];media:StudioMedia[];allowedKinds:StudioKind[];
-  canPublish:boolean;canArchive:boolean;canUpload:boolean;links:string[];mediaIds:string[];
+  initialKind?:StudioKind;canPublish:boolean;canArchive:boolean;canUpload:boolean;links:string[];mediaIds:string[];
 }) {
-  const [kind,setKind]=useState<StudioKind>(()=>(node?.kind as StudioKind|undefined)??allowedKinds[0]);
+  const [kind,setKind]=useState<StudioKind>(()=>(node?.kind as StudioKind|undefined)??initialKind??allowedKinds[0]);
   const [audience,setAudience]=useState<StudioAudience>(()=>(node?.audience as StudioAudience|undefined)??'academy');
   const [parentId,setParentId]=useState(node?.parent_id??'');
   const [cover,setCover]=useState(node?.cover??'');

@@ -45,7 +45,8 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
         (!term||`${node.title} ${node.slug}`.toLocaleLowerCase('ru').includes(term.toLocaleLowerCase('ru'))));
       return <>
         <div className="section-heading studio-heading"><h1>{contentSection.slug?contentSection.label:'Контент'}</h1>
-          {kinds.some(kind=>canEditContent(user,kind))?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
+          {contentSection.slug==='events'&&canEditContent(user,'event')?<Link className="btn btn-dark" href="/admin/new?kind=event">Создать мастер-класс</Link>:
+            kinds.some(kind=>canEditContent(user,kind))?<Link className="btn btn-dark" href="/admin/new">Создать материал</Link>:null}</div>
         <nav className="studio-content-nav" aria-label="Виды материалов">
           {contentSections.map(section=><Link key={section.slug} href={section.slug?'/admin/'+section.slug:'/admin'} aria-current={section===contentSection?'page':undefined}>{section.label}</Link>)}
         </nav>
@@ -70,6 +71,7 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const nodes=await listContent(db,user,true),node=nodes.find(n=>n.id===path[1]);if(path[0]!=='new'&&!node)notFound();
       const allowedKinds=kinds.filter(kind=>canEditContent(user,kind));
       if(path[0]==='new'&&!allowedKinds.length)notFound();
+      const initialKind=path[0]==='new'?(await searchParams).kind:undefined;
       const editable=node?canEditContent(user,node.kind,node.status):hasGrant(user,'content.edit');
       const deleteAction=node&&node.status!=='published'&&canDeleteContent(user,node.kind)?<ActionButton url={'/api/studio/content/'+node.id} method="DELETE" label="Удалить материал" confirm="Удалить материал навсегда?" goTo="/admin"/>:null;
       if(path[0]==='preview'&&node){
@@ -101,7 +103,7 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       return <><p><Link className="small-link" href="/admin">← Все материалы</Link></p><h1>{node?node.title:'Новый материал'}</h1>
         {node?<p><Link className="btn btn-outline" href={previewHref(node)}>Предпросмотр сохранённой версии</Link></p>:null}
         <CmsEditor key={node?.id??'new'} node={node} nodes={choices} media={media} links={links} mediaIds={mediaIds}
-          allowedKinds={allowedKinds} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}
+          allowedKinds={allowedKinds} initialKind={allowedKinds.find(kind=>kind===initialKind)} canPublish={hasGrant(user,'content.publish')} canArchive={hasGrant(user,'content.delete')}
           canUpload={hasGrant(user,'media.upload')}/>
         {deleteAction?<div className="detail-actions">{deleteAction}</div>:null}
       </>;

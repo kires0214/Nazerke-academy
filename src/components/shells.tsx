@@ -8,22 +8,25 @@ import { LogoutButton } from './actions';
 export function Logo({name='by Nazerke',href='/'}:{name?:string;href?:string}) {
   return <Link className="logo" href={href} aria-label={`JUICY ${name}`}><strong>JUICY</strong><small>{name}</small></Link>;
 }
-export function PublicShell({children}:{children:ReactNode}) {
+export function PublicShell({children,user}:{children:ReactNode;user?:Pick<Principal,'status'>|null}) {
   return <><header className="header"><div className="wrap nav"><Logo/><nav className="desktop-links" aria-label="Основная навигация">
     <Link href="/">Главная</Link><Link href="/about">Об академии</Link><Link href="/articles">Статьи</Link><Link href="/events">Мастер-классы</Link><Link href="/contacts">Контакты</Link>
-  </nav><div className="actions"><Link className="btn btn-dark" href="/login">Войти</Link><details className="mobile-menu"><summary>Меню</summary><nav><Link href="/about">Об академии</Link><Link href="/articles">Статьи</Link><Link href="/events">Мастер-классы</Link><Link href="/contacts">Контакты</Link></nav></details></div></div></header>
+  </nav><div className="actions">{user?<div className="public-session">
+    <span>Вы вошли</span><Link className="btn btn-dark" href={user.status==='approved'?'/academy':'/access'}>{user.status==='approved'?'В Академию':'Мой доступ'}</Link>
+  </div>:<Link className="btn btn-dark" href="/login">Войти</Link>}
+  <details className="mobile-menu"><summary>Меню</summary><nav><Link href="/">Главная</Link><Link href="/about">Об академии</Link><Link href="/articles">Статьи</Link><Link href="/events">Мастер-классы</Link><Link href="/contacts">Контакты</Link></nav></details></div></div></header>
   <main id="main" className="wrap">{children}</main><footer className="footer"><div className="wrap foot-grid"><Logo/><div className="foot-nav"><Link href="/contacts">Поддержка</Link><Link href="/privacy">Конфиденциальность</Link><Link href="/terms">Правила доступа</Link></div><small>Готовим с уверенностью.<br/>Учимся вместе.</small></div></footer></>;
 }
 const academyNav=[['/academy','Главная'],['/academy/learn','Обучение'],['/academy/recipes','Рецепты'],['/academy/events','Мастер-классы'],['/academy/materials','Материалы'],['/academy/club','JUICY Club']];
 export function AcademyShell({user,children}:{user:Principal;children:ReactNode}) {
-  return <div className="wrap academy"><header className="academy-nav"><Logo name="Academy" href="/academy"/><nav aria-label="Академия">{academyNav.map(([href,label])=><Link key={href} href={href}>{label}</Link>)}</nav>
+  return <div className="wrap academy"><header className="academy-nav"><Logo name="Academy" href="/academy"/><nav aria-label="Академия">{academyNav.map(([href,label])=><Link key={href} href={href}>{label}</Link>)}<Link href="/">На сайт</Link></nav>
     <div className="actions">{user.status==='approved'&&isStudioRole(user.role)?<Link className="studio-switch" href="/admin" aria-label="Открыть JUICY Studio">Studio</Link>:null}<Link className="search-icon" href="/academy/search" aria-label="Поиск">⌕</Link><Link className="avatar" href="/academy/profile" aria-label="Мой профиль">{user.display_name.slice(0,1)}</Link><LogoutButton/></div></header>
     <main id="main" className="academy-content">{children}</main><nav className="bottom-nav" aria-label="Мобильная навигация">{[['/academy','Главная'],['/academy/learn','Обучение'],['/academy/recipes','Рецепты'],['/academy/events','Встречи'],['/academy/more','Ещё']].map(([href,label])=><Link key={href} href={href}>{label}</Link>)}</nav></div>;
 }
 export function StudioShell({user,children}:{user:Principal;children:ReactNode}) {
   const tabs=[['/admin','Контент',hasGrant(user,'content.read')],['/admin/users','Доступ',hasGrant(user,'students.read')],['/admin/media','Медиафайлы',hasGrant(user,'media.upload')||hasGrant(user,'media.delete')],['/admin/support','Поддержка',hasGrant(user,'support.read')],['/admin/audit','Аудит',hasGrant(user,'audit.read')]] as const;
   return <div className="wrap admin"><header className="nav studio-header"><Logo name="Studio" href="/admin"/>
-    <div className="actions"><Link className="btn btn-outline" href="/academy">В Академию</Link><LogoutButton/></div></header>
+    <div className="actions"><Link className="small-link" href="/">На сайт</Link><Link className="btn btn-outline" href="/academy">В Академию</Link><LogoutButton/></div></header>
     <div className="admin-grid"><StudioNav tabs={tabs.filter(([, , allowed])=>allowed).map(([href,label])=>({href,label}))}/>
       <main id="main" className="admin-panel">{children}</main></div></div>;
 }

@@ -3,6 +3,7 @@ import type { Content } from '@/lib/content';
 import { DownloadButton } from './actions';
 import { PageHead,Photo,RichText,contentHref } from './cards';
 import { VideoPlayer } from './video-player';
+import { eventTimeZone } from '@/lib/event-time';
 
 export type PresentationMedia={id:string;kind:string;state:string};
 const richSections={
@@ -45,10 +46,13 @@ export function ContentPresentation({node,media,apiBase='/api/media'}:{
   </>;
 }
 
-export function EventDetails({node,children}:{node:Content;children?:React.ReactNode}) {
+export function EventDetails({node,remaining,children}:{node:Content;remaining?:number|null;children?:React.ReactNode}) {
   return <section className="info-box">
     {node.data.city?<h2>{node.data.city}</h2>:null}
-    <p>{node.data.startsAt?new Date(node.data.startsAt).toLocaleString('ru-RU',{timeZone:'Asia/Qyzylorda'}):'Дата уточняется'}</p>
+    <p>{node.data.venueAddress||'Адрес уточняется'}</p>
+    <p>{node.data.startsAt?<time dateTime={node.data.startsAt}>{new Date(node.data.startsAt).toLocaleString('ru-RU',{timeZone:eventTimeZone})}</time>:'Дата уточняется'}</p>
+    {remaining!=null?<p>{remaining>0?`Свободно мест: ${remaining} из ${node.data.capacity}`:'Мест нет, доступен лист ожидания'}</p>:
+      node.data.capacity?<p>Всего мест: {node.data.capacity}</p>:null}
     {children}
   </section>;
 }

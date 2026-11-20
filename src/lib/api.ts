@@ -241,7 +241,16 @@ async function uploadFile(db:Db,p:Principal,req:NextRequest) {
 export function scheduleNotifications() {
   if(!process.env.DATABASE_URL||!process.env.TELEGRAM_BOT_TOKEN) return;
   after(async()=>{
-    try {const items=await withDb(db=>dispatchOutbox(db));await withDb(db=>deliverClaimed(db,items));}
+    const deadline=Date.now()+15000;
+    try {
+      // Each batch can take up to 24 seconds at Telegram's request timeout.
+      do {
+        const items=await withDb(db=>dispatchOutbox(db));
+        if(!items.length)break;
+        await withDb(db=>deliverClaimed(db,items));
+        if(items.length<3)break;
+      } while(Date.now()<deadline);
+    }
     catch { console.error('JUICY notification dispatch unavailable'); }
   });
 }

@@ -8,9 +8,21 @@ import { listContent } from './content';
 import { AppError } from './errors';
 
 export const pageTokens=cache(async()=>{const jar=await cookies(),names=cookieNames();return {session:jar.get(names.session)?.value,device:jar.get(names.device)?.value};});
+const readPageUser=cache(async()=>{
+  const tokens=await pageTokens();
+  if(!tokens.session||!tokens.device)return null;
+  return withDb(db=>principal(db,tokens,true));
+});
+export const publicPageUser=cache(async()=>{
+  if(!process.env.DATABASE_URL)return null;
+  try{return await readPageUser();}
+  catch(error){
+    if(!(error instanceof AppError&&[401,403].includes(error.status)))console.error('JUICY public session check unavailable');
+    return null;
+  }
+});
 export const pageUser=cache(async()=>{
-  const tokens=await pageTokens(); if(!tokens.session||!tokens.device) redirect('/login');
-  try {return await withDb(db=>principal(db,tokens,true));}
+  try {return await readPageUser()??redirect('/login');}
   catch(error) {if(error instanceof AppError&&error.status===401) redirect('/login');throw error;}
 });
 export const academyData=cache(async()=>{
