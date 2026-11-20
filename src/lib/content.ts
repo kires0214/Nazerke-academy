@@ -20,6 +20,7 @@ export const bodySchema = z.object({
   equipmentBrand:z.enum(equipmentBrands).optional(),
   catalogSection:z.enum(learningTracks).optional(),
   catalogGroup:z.enum(catalogGroups).optional(),
+  starter:z.boolean().optional(),
   tracks:z.array(z.enum(learningTracks)).min(1).max(learningTracks.length).refine(items=>new Set(items).size===items.length).optional(),
 }).strict();
 export const contentSchema = z.object({
@@ -30,7 +31,9 @@ export const contentSchema = z.object({
   cover: z.string().refine(x=>assetNames.some(n=>x===n+'.webp')).nullable().default(null),
   data: bodySchema.default(() => bodySchema.parse({})), links: z.array(z.uuid()).max(100).default([]),
   mediaIds: z.array(z.uuid()).max(20).default([]), version: z.number().int().positive().optional(),
-}).strict();
+}).strict().refine(input=>input.kind==='course'||input.data.starter===undefined,{
+  path:['data','starter'],message:'Only courses can belong to the starter program',
+});
 export type ContentInput = z.infer<typeof contentSchema>;
 export type Content = {
   id:string;kind:string;slug:string;title:string;description:string;language:string;audience:string;status:ContentInput['status'];

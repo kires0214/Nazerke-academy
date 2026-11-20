@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { Content,ContentInput } from './content';
 import type { Db } from './db';
 import { contentTracks,groupFor,sectionFor,trackLabels } from './catalog';
+import { isStarterCourse } from './starter-program';
 
 const topics:Record<ContentInput['kind'],[section:string,material:string]>={
   course:['Обучение','Курс'],module:['Обучение','Модуль'],lesson:['Обучение','Урок'],
@@ -33,8 +34,9 @@ export async function changesToPublishedContent(db:Db,input:ContentInput,previou
     groupFor(input.kind,input.data)!==groupFor(previous.kind,previous.data))changes.push('раздел');
   if(!input.parentId&&input.audience!=='public'&&!isDeepStrictEqual([...contentTracks(input.audience,input.data)].sort(),
     [...contentTracks(previous.audience,previous.data)].sort())&&!changes.includes('доступ'))changes.push('доступ');
-  const {startsAt,city,venueAddress,capacity,tracks,equipmentBrand,catalogSection,catalogGroup,...nextData}=input.data;
-  const {startsAt:oldTime,city:oldCity,venueAddress:oldAddress,capacity:oldCapacity,tracks:oldTracks,equipmentBrand:oldBrand,catalogSection:oldSection,catalogGroup:oldGroup,...oldData}=previous.data;
+  if(isStarterCourse(input)!==isStarterCourse(previous))changes.push('стартовая программа');
+  const {startsAt,city,venueAddress,capacity,tracks,equipmentBrand,catalogSection,catalogGroup,starter,...nextData}=input.data;
+  const {startsAt:oldTime,city:oldCity,venueAddress:oldAddress,capacity:oldCapacity,tracks:oldTracks,equipmentBrand:oldBrand,catalogSection:oldSection,catalogGroup:oldGroup,starter:oldStarter,...oldData}=previous.data;
   if(!isDeepStrictEqual(nextData,oldData))changes.push('содержание');
   const links=(await db.query<{id:string}>('SELECT target_id AS id FROM content_links WHERE source_id=$1 ORDER BY sort_order',[previous.id])).rows;
   if(!isDeepStrictEqual(input.links,links.map(link=>link.id)))changes.push('связанные материалы');

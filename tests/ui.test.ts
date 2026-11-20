@@ -8,6 +8,8 @@ import {VideoPlayer} from '../src/components/video-player';
 import {EventCalendar} from '../src/components/event-calendar';
 import {CatalogTabs} from '../src/components/catalog-tabs';
 import {AcademySections} from '../src/components/academy-sections';
+import {StarterProgram} from '../src/components/starter-program';
+import {starterProgram} from '../src/lib/starter-program';
 import {academyNavigation} from '../src/lib/site-navigation';
 import {bodySchema} from '../src/lib/content';
 import {eventTimeFromInput,localEventTime} from '../src/lib/event-time';
@@ -39,10 +41,13 @@ test('public, academy and Studio shells each have one header; student has one pr
     assert.match(staffAcademy,/<a[^>]+href="\/admin"[^>]*>Studio<\/a>/);
   }
 });
-test('Academy section cards mirror the navigation and tabs switch subgroups in place',()=>{
-  const cards=renderToStaticMarkup(createElement(AcademySections,{locale:'ru',all:true}));
-  const destinations=academyNavigation('ru').slice(1).map(link=>link.href);
+test('Academy section heroes have separate images and tabs switch subgroups in place',()=>{
+  const cards=renderToStaticMarkup(createElement(AcademySections,{locale:'ru',all:true,catalog:[]}));
+  const destinations=academyNavigation('ru').slice(1,-1).map(link=>link.href);
   assert.deepEqual([...cards.matchAll(/href="([^"]+)"/g)].map(match=>match[1]),destinations);
+  const images=[...cards.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match=>match[1]);
+  assert.equal(new Set(images).size,destinations.length);
+  assert.doesNotMatch(cards,/Контакты/);
   for(const section of ['kenwood','braun','ambassador'] as const){
     const tabs=renderToStaticMarkup(createElement(CatalogTabs,{section,active:'attachments',locale:'ru'}));
     const path=section==='ambassador'?'ambassadors':section;
@@ -51,6 +56,13 @@ test('Academy section cards mirror the navigation and tabs switch subgroups in p
     assert.match(active??'',/group=attachments"/);
     assert.equal((tabs.match(/aria-current="page"/g)??[]).length,1);
   }
+});
+test('the empty starter program stays available in the profile only',()=>{
+  const program=starterProgram([],[]);
+  assert.equal(renderToStaticMarkup(createElement(StarterProgram,{program,locale:'ru',dashboard:true})),'');
+  const profile=renderToStaticMarkup(createElement(StarterProgram,{program,locale:'ru'}));
+  assert.match(profile,/id="starter"/);
+  assert.match(profile,/Стартовая программа/);
 });
 test('rich content escapes stored XSS rather than executing HTML',()=>{
   const html=renderToStaticMarkup(createElement(RichText,{text:'<script>alert(1)</script>\n\n## A heading'}));assert.equal(html.includes('<script>'),false);assert.match(html,/&lt;script&gt;/);assert.match(html,/<h2>A heading/);

@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ContentCards,PageHead } from '@/components/cards';
 import { ActionButton,FavoriteButton } from '@/components/actions';
 import { groupLabel } from '@/components/catalog-tabs';
+import { starterProfileHref } from '@/components/starter-program';
 import { ContentPresentation,ContentProgram,EventDetails,type PresentationMedia } from '@/components/content-presentation';
 import { academyData,pageTokens } from '@/lib/pages';
 import { withDb } from '@/lib/db';
@@ -12,6 +13,7 @@ import { academyDetailKinds,groupFor,sectionFor,sectionHref,trackLabels } from '
 import { eventsWithSeats } from '@/lib/events';
 import { siteLocale } from '@/lib/site-locale';
 import { copy } from '@/lib/locale';
+import { isStarterCourse } from '@/lib/starter-program';
 export default async function Page({params}:{params:Promise<{section:string;slug:string}>}) {
   const [{section,slug},{nodes,catalog,progress,favorites,links},locale]=await Promise.all([params,academyData(),siteLocale()]);
   const t=copy(locale);
@@ -42,7 +44,9 @@ export default async function Page({params}:{params:Promise<{section:string;slug
   });
   const related=nodes.filter(n=>links.some(l=>l.source_id===node.id&&l.target_id===n.id||l.target_id===node.id&&l.source_id===n.id));
   const completed=new Set(progress.filter(p=>p.completed_at).map(p=>p.lesson_id));
-  return <article>{subnav}
+  return <article><div className="catalog-detail-nav">{subnav}
+    {isStarterCourse(root)?<Link className="btn btn-outline btn-small catalog-back" href={starterProfileHref}>{t('Стартовая программа','Getting started')} →</Link>:null}
+    </div>
     <ContentPresentation node={node} media={media} locale={locale}/>
     <div className="detail-actions"><FavoriteButton url="/api/favorites" target={{contentId:node.id}} saved={favorites.includes(node.id)}/>
     {node.kind==='lesson'?<ActionButton url="/api/progress" payload={{lessonId:node.id,position:progress.find(p=>p.lesson_id===node.id)?.position_seconds??0,completed:true}} label={progress.some(p=>p.lesson_id===node.id&&p.completed_at)?t('Урок завершён ✓','Lesson completed ✓'):t('Завершить урок','Complete lesson')}/>:null}</div>

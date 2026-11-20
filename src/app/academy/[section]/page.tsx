@@ -4,6 +4,7 @@ import { ContentCards,PageHead,contentHref } from '@/components/cards';
 import { AcademySections } from '@/components/academy-sections';
 import { ArticleCards,builtinArticles } from '@/components/public-content';
 import { CatalogTabs } from '@/components/catalog-tabs';
+import { StarterProgram } from '@/components/starter-program';
 import { CityInterestForm,SupportForm } from '@/components/actions';
 import { EventCalendar } from '@/components/event-calendar';
 import { catalogGroups,groupFor,sectionFor,trackLabels } from '@/lib/catalog';
@@ -15,11 +16,12 @@ import { academyData,pageTokens } from '@/lib/pages';
 import { principal } from '@/lib/security';
 import { siteLocale } from '@/lib/site-locale';
 import { supportHistory } from '@/lib/support';
+import { starterProgram } from '@/lib/starter-program';
 
 export default async function Page({params,searchParams}:{params:Promise<{section:string}>;searchParams:Promise<Record<string,string|undefined>>}) {
   const [{section},search,{user,nodes,catalog,progress,favorites,articleFavorites,links},locale]=await Promise.all([params,searchParams,academyData(),siteLocale()]);
   const t=copy(locale);
-  if(section==='learn') return <><PageHead title={t('Разделы','Sections')}/><AcademySections locale={locale}/></>;
+  if(section==='learn') return <><PageHead title={t('Разделы','Sections')}/><AcademySections locale={locale} catalog={catalog}/></>;
   if(section==='kenwood'||section==='braun'||section==='ambassadors') {
     const track=section==='ambassadors'?'ambassador':section;
     const group=catalogGroups.find(group=>group===search.group)??'training';
@@ -50,6 +52,7 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
     <ContentCards nodes={catalog.filter(node=>node.kind==='post'&&node.data.postKind==='offer')} locale={locale}/>
   </>;
   if(section==='profile') return <><PageHead title={user.display_name}/>
+    <StarterProgram locale={locale} program={starterProgram(nodes,progress)}/>
     <div className="info-box"><h2>{t('Мой прогресс','My progress')}</h2><p>{t('Завершено уроков','Lessons completed')}: {progress.filter(p=>p.completed_at).length}</p>
       {progress.map(p=>{const node=nodes.find(n=>n.id===p.lesson_id);return node?<p key={p.lesson_id}><Link href={contentHref(node)}>{node.title} {p.completed_at?'✓':`· ${p.position_seconds} ${t('сек','sec')}`}</Link></p>:null;})}</div>
     <h2>{t('Избранное','Favorites')}</h2>

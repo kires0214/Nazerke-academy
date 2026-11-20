@@ -4,6 +4,7 @@ import { fixture } from './helpers';
 import { contentSchema,filterContent,getContent,listContent,saveContent,setProgress } from '../src/lib/content';
 import { migrate } from '../scripts/migrate';
 import { readFile } from 'node:fs/promises';
+import { starterProgram } from '../src/lib/starter-program';
 
 test('synthetic content: ten ordered Kenwood lessons, private scope and normalized recipe reuse',async()=>{
   const f=await fixture();try {const a=await f.account(),all=await f.run(db=>listContent(db,a.p));
@@ -56,6 +57,45 @@ test('recipe search, language/category/duration filters and XSS remain text',asy
     assert.equal(filterContent(all,new URLSearchParams({kind:'recipe',q:'паста',language:'RU',category:'Горячие блюда',duration:'60'})).length,1);
     assert.equal(filterContent(all,new URLSearchParams({kind:'recipe',duration:'15'})).length,0);
     assert.equal(filterContent(all,new URLSearchParams({q:"' OR 1=1 --"})).length,0);
+  }finally{await f.close();}
+});
+test('starter program tracks only published accessible courses and completes separately for each learner',async()=>{
+  const f=await fixture();
+  try {
+    const learner=await f.account(),other=await f.account(),tech=await f.account('techadmin');
+    const braunLearner=await f.account('student','approved',['academy','braun']);
+    const save=(kind:string,slug:string,extra:Record<string,unknown>={})=>f.run(db=>saveContent(db,tech.p,{
+      kind,slug,title:slug,status:'published',...extra,
+    }));
+    const intro=await save('course','synthetic-starter',{data:{starter:true}});
+    const module=await save('module','synthetic-starter-module',{parentId:intro});
+    const lesson=await save('lesson','synthetic-starter-lesson',{parentId:module});
+    await save('lesson','synthetic-starter-draft',{parentId:module,status:'draft'});
+    const braun=await save('course','synthetic-braun-starter',{data:{starter:true,tracks:['braun']}});
+    const braunModule=await save('module','synthetic-braun-starter-module',{parentId:braun});
+    await save('lesson','synthetic-braun-starter-lesson',{parentId:braunModule});
+    await save('course','synthetic-empty-starter',{data:{starter:true}});
+    assert.throws(()=>contentSchema.parse({kind:'recipe',slug:'invalid-starter',title:'Invalid',data:{starter:true}}));
+    const content=await f.run(db=>listContent(db,learner.p));
+    const program=async (actor:typeof learner)=>starterProgram(await f.run(db=>listContent(db,actor.p)),
+      (await f.engine.query<{lesson_id:string;completed_at:string|null}>('SELECT lesson_id,completed_at FROM lesson_progress WHERE user_id=$1',[actor.id])).rows);
+    assert.deepEqual((await program(braunLearner)).courses.map(item=>item.course.id),[braun]);
+    assert.deepEqual((await program(learner)).courses.map(item=>item.course.slug),['kenwood','synthetic-starter']);
+    await assert.rejects(f.run(db=>setProgress(db,braunLearner.p,lesson,0,true)),/CONTENT_NOT_FOUND/);
+    const kenwood=content.find(node=>node.slug==='kenwood')!;
+    const kenwoodModule=content.find(node=>node.parent_id===kenwood.id)!;
+    const lessons=content.filter(node=>node.parent_id===kenwoodModule.id);
+    await f.run(db=>setProgress(db,learner.p,lessons[0].id,30,false));
+    assert.equal((await program(learner)).remaining?.nextLesson?.id,lessons[0].id);
+    for(const item of lessons)await f.run(db=>setProgress(db,learner.p,item.id,0,true));
+    assert.equal((await program(learner)).remaining?.nextLesson?.id,lesson);
+    await f.run(db=>setProgress(db,learner.p,lesson,0,true));
+    const complete=await program(learner);
+    assert.equal(complete.finished,2);
+    assert.equal(complete.remaining,undefined);
+    assert.equal(complete.courses.length,2);
+    assert.equal((await program(other)).finished,0);
+    assert.equal(starterProgram(content.map(node=>node.id===kenwood.id?{...node,data:{...node.data,starter:false}}:node),[]).courses.length,1);
   }finally{await f.close();}
 });
 test('migrations are idempotent and checksum locked on a fresh PostgreSQL engine',async()=>{

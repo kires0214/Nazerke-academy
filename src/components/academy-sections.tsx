@@ -1,9 +1,53 @@
-import { copy,type SiteLocale } from '@/lib/locale';
+import Link from 'next/link';
+import { sectionFor, type LearningTrack } from '@/lib/catalog';
+import type { CatalogNode } from '@/lib/content';
+import { eventTimeZone } from '@/lib/event-time';
+import { copy, type SiteLocale } from '@/lib/locale';
 import { academyNavigation } from '@/lib/site-navigation';
-import { SectionCards } from './section-cards';
+import { Photo } from './cards';
 
-export function AcademySections({locale,all=false}:{locale:SiteLocale;all?:boolean}) {
+const images:Record<string,string>={
+  offers:'biscuit.webp',
+  kenwood:'mixer.webp',
+  braun:'smoothie.webp',
+  ambassadors:'nazerke-ambassador.avif',
+  events:'pasta.webp',
+};
+const tracks:Record<string,LearningTrack>={kenwood:'kenwood',braun:'braun',ambassadors:'ambassador'};
+
+export function AcademySections({locale,catalog,all=false}:{locale:SiteLocale;catalog:CatalogNode[];all?:boolean}) {
   const t=copy(locale);
-  const links=academyNavigation(locale);
-  return <SectionCards links={all?links.slice(1):links.slice(2,5)} label={t('Разделы Академии','Academy sections')}/>;
+  const links=academyNavigation(locale).map(link=>({...link,section:link.href.replace('/academy/','')}))
+    .filter(({section})=>Object.hasOwn(all?images:tracks,section));
+  const offers=catalog.filter(node=>node.kind==='post'&&node.data.postKind==='offer').length;
+  const now=Date.now();
+  const firstEvent=catalog.reduce<number>((first,node)=>{
+    const at=node.kind==='event'&&node.data.startsAt?Date.parse(node.data.startsAt):0;
+    return at>now&&at<first?at:first;
+  },Infinity);
+  const upcoming=Number.isFinite(firstEvent)?new Intl.DateTimeFormat(locale,{dateStyle:'medium',timeZone:eventTimeZone}).format(firstEvent):null;
+  const descriptions:Record<string,string>={
+    offers:t('Предложения и новости о действующих акциях JUICY.','Current promotions and special offers from JUICY.'),
+    kenwood:t('От первого включения до замеса, насадок и готовых блюд.','From your first setup to kneading, attachments and finished dishes.'),
+    braun:t('Приёмы для повседневной готовки: измельчение, смешивание и быстрые рецепты.','Everyday techniques for chopping, blending and quick recipes.'),
+    ambassadors:t('Обучение и практика для тех, кто представляет JUICY.','Training and practice for people who represent JUICY.'),
+    events:t('Выберите живую встречу и посмотрите свободные места в календаре.','Find an in-person masterclass and check available seats.'),
+  };
+  return <nav className={'academy-heroes'+(all?' academy-heroes-home':'')} aria-label={t('Разделы Академии','Academy sections')}>
+    {links.map(({href,label,section})=>{
+      const courses=tracks[section]?catalog.filter(node=>node.kind==='course'&&sectionFor(node.audience,node.data)===tracks[section]):[];
+      const available=courses.filter(course=>!course.locked).length;
+      const detail=section==='offers'?(offers?t(`Предложений: ${offers}`,`Offers: ${offers}`):t('Акции появятся после публикации','Offers will appear here once published')):
+        section==='events'?(upcoming?t(`Ближайшая встреча · ${upcoming}`,`Next masterclass · ${upcoming}`):t('Новые даты появятся в календаре','New dates will appear in the calendar')):
+        courses.length===0?t('Курсы готовятся','Courses are in preparation'):
+        t(`Доступно курсов: ${available} из ${courses.length}`,`Courses available: ${available} of ${courses.length}`);
+      return <Link className={`academy-hero academy-hero-${section}`} href={href} key={href}>
+        <div className="academy-hero-art"><Photo name={images[section]} alt=""/></div>
+        <div className="academy-hero-body">
+          <strong className="academy-hero-title">{label}</strong><p>{descriptions[section]}</p>
+          <div className="academy-hero-footer"><span>{detail}</span><span className="academy-hero-arrow" aria-hidden="true">→</span></div>
+        </div>
+      </Link>;
+    })}
+  </nav>;
 }

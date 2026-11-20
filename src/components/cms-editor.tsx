@@ -9,6 +9,7 @@ import { groupLabel } from './catalog-tabs';
 import { TrackChoices } from './staff-controls';
 import { putDirectVideo } from '@/lib/video-client';
 import { eventTimeFromInput,localEventTime } from '@/lib/event-time';
+import { isStarterCourse } from '@/lib/starter-program';
 import { apiCall,messageFor } from './actions';
 import { StudioPicker,type StudioOption } from './studio-picker';
 import { audienceLabels,kindLabels,mediaDetail,mediaKindLabels,publicationLabels,statusLabels,type PublicationType,type StudioAudience,type StudioKind,type StudioMedia } from './studio-labels';
@@ -138,11 +139,14 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,initialPost
     setNotice('');
     setSaving(true);
     try {
+      const defaultStarter=value('slug')==='kenwood'||node?.data.starter!==undefined?false:undefined;
+      const starter=kind==='course'?(form.has('starter')?true:defaultStarter):undefined;
       const payload={
         kind,slug:value('slug'),title:value('title'),description:value('description'),language:value('language') as ContentInput['language'],
         audience:effectiveAudience,status:nextStatus,parentId:needsParent?parentId:null,sortOrder:Number(value('sortOrder')),
         cover:cover||null,links:linkKind?linked:[],mediaIds:attached,version:node?.version,
         data:{...readEditorData(kind,form,node?.data),tracks:selectTracks?tracks:undefined,
+          starter,
           postKind:kind==='post'?publication:undefined,catalogSection:needsParent?undefined:section,
           catalogGroup:needsParent?undefined:activeGroup},
       };
@@ -201,6 +205,10 @@ export function CmsEditor({node,nodes,media,allowedKinds,initialKind,initialPost
         <TrackChoices selected={tracks} onChange={value=>{tracksEdited.current=true;setTracks(value);}}
           publicSelected={publicSelected} onPublicChange={publicKinds.has(kind)?setPublicSelected:undefined} joint/>
       </>}
+      {kind==='course'?<div>
+        <label className="checkbox"><input type="checkbox" name="starter" defaultChecked={!!node&&isStarterCourse(node)}/>Включить в стартовую программу</label>
+        <p className="studio-hint">Ученики с допуском увидят курс в личном кабинете, когда в курсе появится опубликованный урок.</p>
+      </div>:null}
       <label>Краткое описание<textarea name="description" rows={3} defaultValue={node?.description} maxLength={2000}/></label>
       <details className="studio-disclosure" ref={ordering} open={!node?true:undefined}>
         <summary>Адрес и порядок</summary>
