@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { CmsEditor,MediaUpload } from '@/components/cms-editor';
-import { RegistrationControls,StaffControls,StudentTrackControls } from '@/components/staff-controls';
+import { CreateInvitation,RegistrationControls,StaffControls,StudentTrackControls } from '@/components/staff-controls';
 import { ActionButton,SupportForm } from '@/components/actions';
 import { ContentCards } from '@/components/cards';
 import { ContentPresentation,ContentProgram,EventDetails,type PresentationMedia } from '@/components/content-presentation';
@@ -14,7 +14,7 @@ import { canDeleteContent,canEditContent,kinds,listContent } from '@/lib/content
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
 import { academyPostSections,catalogGroups,contentTracks,groupFor,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
-import { pendingRegistrationRequests } from '@/lib/telegram-access';
+import { pendingRegistrationRequests,registrationInvites } from '@/lib/telegram-access';
 import { auditPage,canManageMedia,readAuditFilter } from '@/lib/activity';
 import { studioAccounts } from '@/lib/accounts';
 import { StudioList } from '@/components/studio-list';
@@ -145,26 +145,48 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       const requests=await pendingRegistrationRequests(db,user);
       const view=(await searchParams).view;
       const archive=view==='archive';
-      const showRequests=view==='requests'||!archive&&view!=='accounts'&&!!requests.length;
       const canApprove=hasGrant(user,'students.approve'),canEditTracks=hasGrant(user,'students.tracks');
+      const showInvites=view==='invites';
+      if(showInvites&&!canApprove)notFound();
+      const showRequests=!showInvites&&(view==='requests'||!archive&&view!=='accounts'&&!!requests.length);
+      const showAccounts=!showInvites&&!showRequests;
       const canEditSchool=hasGrant(user,'ambassadors.assign'),tech=user.role==='techadmin';
       const canBlock=hasGrant(user,'students.block');
-      const users=showRequests?[]:await studioAccounts(db,user,archive);
-      const allGrants=tech&&!showRequests&&!archive?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
+      const users=showAccounts?await studioAccounts(db,user,archive):[];
+      const invites=showInvites?await registrationInvites(db,user):[];
+      const allGrants=tech&&showAccounts&&!archive?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
+      const inviteStatuses={active:'Действует',used:'Использовано',revoked:'Отозвано',expired:'Срок истёк'};
+      const inviteDate=(date:string)=>new Date(date).toLocaleString('ru-RU',{timeZone:'Asia/Qyzylorda'});
       return <><h1>Доступ в академию</h1>
         <nav className="studio-content-nav" aria-label="Управление доступом">
-          <Link href="/admin/users?view=accounts" aria-current={!showRequests&&!archive?'page':undefined}>Аккаунты</Link>
+          <Link href="/admin/users?view=accounts" aria-current={showAccounts&&!archive?'page':undefined}>Аккаунты</Link>
           <Link href="/admin/users?view=requests" aria-current={showRequests?'page':undefined}>Заявки{requests.length?' ('+requests.length+')':''}</Link>
+          {canApprove?<Link href="/admin/users?view=invites" aria-current={showInvites?'page':undefined}>Приглашения</Link>:null}
           <Link href="/admin/users?view=archive" aria-current={archive?'page':undefined}>Архив</Link>
         </nav>
-        {showRequests?<StudioList key="requests" searchLabel="Имя, телефон или заказ" empty="Новых заявок нет." filters={[
+        {showInvites?<div className="form-stack">
+          <CreateInvitation/>
+          <StudioList key="invites" searchLabel="Дата или статус" empty="Приглашений пока нет." filters={[
+            {key:'status',label:'Статус',options:Object.entries(inviteStatuses)},
+          ]} rows={invites.map(invite=>({
+            id:invite.id,
+            terms:[inviteDate(invite.created_at),inviteDate(invite.expires_at),inviteStatuses[invite.status]].join(' '),
+            values:{status:[invite.status]},
+            content:<section className="studio-record">
+              <div className="studio-record-heading"><h2>От {inviteDate(invite.created_at)}</h2><span className="studio-status">{inviteStatuses[invite.status]}</span></div>
+              <p>Срок действия до {inviteDate(invite.expires_at)}</p>
+              {invite.status==='active'?<ActionButton url={'/api/studio/invitations/'+invite.id} method="DELETE" label="Отозвать" variant="outline" confirm="Отозвать эту ссылку-приглашение?"/>:null}
+            </section>,
+          }))}/>
+        </div>:showRequests?<StudioList key="requests" searchLabel="Имя, телефон или заказ" empty="Новых заявок нет." filters={[
+          {key:'channel',label:'Тип заявки',options:[['invite','По приглашению'],['order','С заказом'],['legacy','Без данных заказа']]},
           {key:'source',label:'Магазин',options:Object.entries(orderSourceLabels)},
         ]} rows={requests.map(request=>({
           id:request.id,terms:[request.display_name,request.phone,request.order_number].filter(Boolean).join(' '),
-          values:{source:request.order_source?[request.order_source]:[]},
+          values:{channel:[request.invite_id?'invite':request.order_source?'order':'legacy'],source:request.order_source?[request.order_source]:[]},
           content:<section className="studio-record">
             <h2>{request.display_name}</h2><p>{request.phone}</p>
-            {request.order_source&&request.order_number?
+            {request.invite_id?<p className="studio-hint">По ссылке-приглашению · без заказа</p>:request.order_source&&request.order_number?
               <p>{orderSourceLabels[request.order_source]} · заказ <strong>{request.order_number}</strong></p>:
               <p className="studio-hint">Данные заказа не указаны.</p>}
             {canApprove?<details className="studio-disclosure"><summary>Рассмотреть заявку</summary>

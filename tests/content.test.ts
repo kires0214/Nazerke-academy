@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { fixture } from './helpers';
 import { academyCatalog,contentSchema,filterContent,getContent,listContent,saveContent,setProgress } from '../src/lib/content';
 import { migrate } from '../scripts/migrate';
-import { readFile } from 'node:fs/promises';
+import { readFile,readdir } from 'node:fs/promises';
 import { starterProgram } from '../src/lib/starter-program';
 import { readCatalogSearch,searchCatalog,trackCatalog } from '../src/lib/catalog-search';
 
@@ -127,7 +127,9 @@ test('starter program tracks only published accessible courses and completes sep
 test('migrations are idempotent and checksum locked on a fresh PostgreSQL engine',async()=>{
   const { PGlite }=await import('@electric-sql/pglite'),{adapter}=await import('./helpers');const engine=new PGlite();
   try {await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));
-    assert.equal((await engine.query('SELECT * FROM schema_migrations')).rows.length,10);
+    const files=(await readdir(new URL('../migrations/',import.meta.url))).filter(name=>name.endsWith('.sql')).sort();
+    const {rows}=await engine.query<{name:string}>('SELECT name FROM schema_migrations ORDER BY name');
+    assert.deepEqual(rows.map(row=>row.name),files);
     await engine.query("UPDATE schema_migrations SET sha256='changed'");await assert.rejects(engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine))),/MIGRATION_CHECKSUM_CHANGED/);
   }finally{await engine.close();}
 });

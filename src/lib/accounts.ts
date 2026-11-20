@@ -19,6 +19,7 @@ export const accountSchema = z.discriminatedUnion('action',[
 async function removeAccountData(db:Db,userId:string,telegramId:string) {
   await db.query('DELETE FROM telegram_login_codes WHERE telegram_id=$1',[telegramId]);
   await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
+  await db.query('DELETE FROM telegram_registration_invite_drafts WHERE telegram_id=$1',[telegramId]);
   await db.query('DELETE FROM registration_requests WHERE telegram_id=$1',[telegramId]);
   await db.query('DELETE FROM notification_outbox WHERE chat_id=$1',[telegramId]);
   await db.query('DELETE FROM sessions WHERE user_id=$1',[userId]);

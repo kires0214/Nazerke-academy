@@ -17,7 +17,6 @@ Store values directly in [Vercel environment settings](https://vercel.com/orch-l
 | Key | Type | Development value / hosted DEV requirement |
 | --- | --- | --- |
 | `APP_ENV` | Config | `DEV` |
-| `TELEGRAM_REQUIRE_ORDER_DETAILS` | Config | Optional. Set `false` on the DEV branch Preview to accept Telegram applications after verified contact and full name. Restore `true` or remove the key, then redeploy DEV to ask for orders again. |
 | `APP_BASE_URL` | Config | Local: `http://localhost:3000`; branch Preview: the verified public HTTPS DEV origin |
 | `DATABASE_URL` | Secret | Separate Neon DEV connection string |
 | `TELEGRAM_BOT_TOKEN` | Secret | Dedicated DEV bot token |
@@ -58,6 +57,8 @@ Do not assume that pulling Secret values reproduces all hosted credentials. Do n
 Neon initialization and SQL/backend checks can proceed independently of the Git link, Telegram and Mux. Verify the exact separate DEV resource first, use its direct/non-pooled connection for the existing migration runner, and use its pooled connection as the application's Vercel `DATABASE_URL`. Run the DEV-only synthetic seed with `APP_ENV=DEV`. Do not run initialization against Production. Re-running migrations must verify checksums; re-running seed must preserve content/relationship counts. See [the live DEV receipt](DEV_RECEIPT.md#live-neon-dev-continuation) for the completed checks.
 
 Run migration 003 before deploying the invitation flow. In DEV, verify the bot receives a private join request and that sharing one's own contact creates only a review record. The operator verifies the first Tech Admin's Telegram ID against the trusted owner's request, sets `BOOTSTRAP_TECHADMIN_TELEGRAM_ID` temporarily for `npm run db:bootstrap-admin`, and removes the variable after success. The command also accepts a pre-existing eligible account for upgrades. It verifies there is no existing Tech Admin, records the promotion, and clears the applicant phone. The Tech Admin requests a code in Telegram and uses it on `/login`. In Studio, staff with `students.read` can review names and phone numbers, and those with `students.approve` can invite or decline. Review clears the phone. Keep DEV test data synthetic and restrict real onboarding to the approved release.
+
+Apply migration 011 before deploying one-time invitations. Staff with `students.read` and `students.approve` create a link in **Studio → Доступ → Приглашения** and share it with the intended recipient. The link expires after seven days or after one submitted request, and staff can revoke an unused link. Both flows require the applicant's own Telegram contact and their first and last name. The public site flow additionally requires the store and order number. Both requests go to Studio for review and assignment of access. The old `TELEGRAM_REQUIRE_ORDER_DETAILS` key can be removed from the DEV Preview.
 
 Exercise invites and expiry, browser/device checks, private Mux upload/playback, support roundtrip and backup/restore before a release. Confirm Production's serving deployment and environment metadata are unchanged during DEV setup.
 

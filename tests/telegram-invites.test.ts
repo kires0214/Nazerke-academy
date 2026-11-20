@@ -4,20 +4,24 @@ import { NextRequest } from 'next/server';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
 import { hash, principal, type Tokens } from '../src/lib/security';
-import { handleTelegramAccess, pendingRegistrationRequests, registrationRequiresOrder } from '../src/lib/telegram-access';
+import { decideRegistration, pendingRegistrationRequests, registrationInvites } from '../src/lib/telegram-access';
+import { processTelegramUpdate } from '../src/lib/support';
 import { fixture } from './helpers';
 
 const origin = 'https://dev.juicy.invalid';
 const telegramId = 900000000000123;
 const contact = { user_id: telegramId, first_name: 'Synthetic', last_name: 'Applicant', phone_number: '+12025550101' };
 const secret = 'synthetic_dev_webhook_secret_at_least_32';
-
-test('a verified bot request stays outside users until Studio invites it, then one-time codes sign in only on the registered browser', async () => {
+function configureBot() {
   Object.assign(process.env, {
     APP_BASE_URL: origin, DATABASE_URL: 'postgresql://synthetic.invalid/juicy',
     TELEGRAM_BOT_TOKEN: '999999999:synthetic_dev_only', TELEGRAM_LOGIN_BOT_NAME: 'SyntheticJuicyBot',
     TELEGRAM_WEBHOOK_SECRET: secret,
   });
+}
+
+test('a verified bot request stays outside users until Studio invites it, then one-time codes sign in only on the registered browser', async () => {
+  configureBot();
   const f = await fixture();
   const originalFetch = globalThis.fetch;
   const messages: { chat_id: string; text: string; reply_markup?: { keyboard: { request_contact: boolean }[][] } }[] = [];
@@ -75,6 +79,8 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await sendUpdate(21,{text:'Test'})).status,200);
     assert.equal((await sendUpdate(22,{text:'Синтетический Ученик'})).status,200);
     assert.equal((await sendUpdate(23,{text:'Сайт Braun'})).status,200);
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
+    assert.match(messages.at(-1)!.text,/Введите номер заказа/);
     assert.equal((await sendUpdate(24,{text:'BR-DEMO-12345'})).status,200);
     assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
     const requests = await f.run(db => pendingRegistrationRequests(db, reader.p));
@@ -156,41 +162,99 @@ test('a verified bot request stays outside users until Studio invites it, then o
   }
 });
 
-test('DEV can submit verified contacts without order details, including an existing draft',async()=>{
-  const savedEnv=process.env.APP_ENV,savedOrder=process.env.TELEGRAM_REQUIRE_ORDER_DETAILS,savedBase=process.env.APP_BASE_URL;
+test('Studio links skip order details once, preserve approval, and can be revoked or expire', async () => {
+  configureBot();
   const f=await fixture();
+  const replies:string[]=[];
+  const send=async (_id:string,message:string)=>{replies.push(message);return String(replies.length);};
+  let updateId=100;
+  const run=(id:number,text?:string,details?:typeof contact)=>f.run(db=>processTelegramUpdate(db,{
+    update_id:++updateId,message:{from:{id},chat:{type:'private',id},text,contact:details},
+  },send));
+  const names=cookieNames();
+  const call=(path:string,tokens:Tokens,method='POST')=>handleApi(new NextRequest(origin+'/api/'+path,{
+    method,headers:{Origin:origin,Cookie:`${names.session}=${tokens.session}; ${names.device}=${tokens.device}`},
+  }),path.split('/'),f.run);
+
   try{
-    process.env.APP_BASE_URL=origin;
-    process.env.TELEGRAM_REQUIRE_ORDER_DETAILS='false';
-    process.env.APP_ENV='PROD';
-    assert.equal(registrationRequiresOrder(),true);
-    process.env.APP_ENV='DEV';
-    const replies:string[]=[];
-    const send=async (_id:string,message:string)=>{replies.push(message);return String(replies.length);};
-    const run=(id:number,text?:string,details?:typeof contact)=>f.run(db=>handleTelegramAccess(db,String(id),text,details,send));
-    const first=telegramId+42,previous=telegramId+43;
-    await run(first,'/start');
-    assert.doesNotMatch(replies.at(-1)!,/данные заказа/);
+    const tech=await f.account('techadmin');
+    const reader=await f.account('admin','approved',[],['students.read']);
+    const approver=await f.account('admin','approved',[],['students.read','students.approve']);
+    const student=await f.account();
+    const create=async(tokens=tech.tokens)=>{
+      const response=await call('studio/invitations',tokens);
+      assert.equal(response.status,200);
+      assert.match(response.headers.get('cache-control')??'',/no-store/);
+      const {id,url}=await response.json() as {id:string;url:string};
+      const link=new URL(url);
+      assert.equal(link.origin,'https://t.me');
+      assert.equal(link.pathname,'/SyntheticJuicyBot');
+      const payload=link.searchParams.get('start')!;
+      assert.match(payload,/^invite_[A-Za-z0-9_-]{32}$/);
+      return {id,start:'/start '+payload,token:payload.slice(7)};
+    };
+    assert.equal((await call('studio/invitations',reader.tokens)).status,403);
+    assert.equal((await call('studio/invitations',student.tokens)).status,403);
+    const invite=await create(approver.tokens);
+    const stored=(await f.engine.query<{token_hash:string}>('SELECT token_hash FROM registration_invites')).rows[0];
+    assert.equal(stored.token_hash,hash(invite.token));
+    assert.equal((await call('studio/invitations/'+invite.id,reader.tokens,'DELETE')).status,403);
+    await assert.rejects(f.run(db=>registrationInvites(db,reader.p)),/PERMISSION_DENIED/);
+
+    const first=telegramId+42,second=telegramId+43;
+    await run(first,invite.start);
+    assert.match(replies.at(-1)!,/Затем бот спросит имя и фамилию/);
     await run(first,undefined,contact);
-    assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
+    await run(first,'Synthetic Learner');
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
     await run(first,undefined,{...contact,user_id:first});
+    await run(first,'Synthetic');
+    assert.match(replies.at(-1)!,/Введите ваше имя и фамилию/);
+    await run(second,invite.start);
+    await run(second,undefined,{...contact,user_id:second});
     await run(first,'Synthetic Learner');
     assert.match(replies.at(-1)!,/Заявка отправлена/);
-    await f.engine.query(`INSERT INTO telegram_registration_drafts(telegram_id,phone,display_name,order_source,expires_at)
-      VALUES($1,$2,'Synthetic Previous','braun',now()+interval '30 minutes')`,[previous,contact.phone_number]);
-    await run(previous,'/start');
-    assert.match(replies.at(-1)!,/Заявка отправлена/);
-    const {rows}=await f.engine.query<{display_name:string;order_source:string|null;order_number:string|null}>(
-      'SELECT display_name,order_source,order_number FROM registration_requests ORDER BY telegram_id');
-    assert.deepEqual(rows,[
-      {display_name:'Synthetic Learner',order_source:null,order_number:null},
-      {display_name:'Synthetic Previous',order_source:null,order_number:null},
-    ]);
-    assert.equal((await f.engine.query('SELECT id FROM users')).rows.length,0);
-  }finally{
-    if(savedEnv===undefined)delete process.env.APP_ENV;else process.env.APP_ENV=savedEnv;
-    if(savedOrder===undefined)delete process.env.TELEGRAM_REQUIRE_ORDER_DETAILS;else process.env.TELEGRAM_REQUIRE_ORDER_DETAILS=savedOrder;
-    if(savedBase===undefined)delete process.env.APP_BASE_URL;else process.env.APP_BASE_URL=savedBase;
+    await run(second,'Synthetic Second');
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+    await run(second,invite.start);
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+    const [request]=await f.run(db=>pendingRegistrationRequests(db,tech.p));
+    assert.equal(request.invite_id,invite.id);
+    assert.equal(request.display_name,'Synthetic Learner');
+    assert.equal(request.order_source,null);
+    assert.equal(request.order_number,null);
+    assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id=$1',[first])).rows.length,0);
+    await run(first,'/login');
+    assert.match(replies.at(-1)!,/Заявка уже отправлена/);
+    assert.equal((await call('studio/invitations/'+invite.id,tech.tokens,'DELETE')).status,409);
+
+    const revoked=await create();
+    await run(second,revoked.start);
+    assert.equal((await call('studio/invitations/'+revoked.id,tech.tokens,'DELETE')).status,200);
+    await run(second,'Synthetic Second');
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+
+    const expired=await create();
+    await f.engine.query("UPDATE registration_invites SET expires_at=now()-interval '1 minute' WHERE id=$1",[expired.id]);
+    await run(second,expired.start);
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+    await run(second,'/start invite_'+'X'.repeat(32));
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+    const switchable=await create();
+    await run(second,switchable.start);
+    await run(second,'/start request');
+    await run(second,'Synthetic Second');
+    assert.match(replies.at(-1)!,/Где оформлен заказ/);
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,1);
+    await f.run(db=>decideRegistration(db,approver.p,request.id,{action:'invite',role:'student',grants:[]}));
+    await run(first,'/login');
+    assert.match(replies.at(-1)!,/Код входа в JUICY:/);
+
+    const list=await f.run(db=>registrationInvites(db,tech.p));
+    assert.deepEqual(Object.fromEntries(list.map(row=>[row.id,row.status])),
+      {[expired.id]:'expired',[revoked.id]:'revoked',[invite.id]:'used',[switchable.id]:'active'});
+    assert.ok(list.every(row=>!('token_hash' in row)));
+  } finally {
     await f.close();
   }
 });

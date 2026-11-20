@@ -12,7 +12,7 @@ import { deleteMedia,mediaFileName,mediaFileNameHeader } from './media';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
 import { verifyMuxWebhook } from './mux';
 import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
-import { configuredTelegramBot, decideRegistration, loginCode, redeemTelegramCode, requestDecision } from './telegram-access';
+import { configuredTelegramBot, createRegistrationInvite, decideRegistration, loginCode, redeemTelegramCode, requestDecision, revokeRegistrationInvite } from './telegram-access';
 
 type Runner = <T>(work:(db:Db)=>Promise<T>)=>Promise<T>;
 const uuid=(value:string)=>z.uuid().parse(value);
@@ -125,6 +125,10 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         return studioAccounts(db,p,url.searchParams.get('view')==='archive');
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
+      if(key==='studio/invitations'&&method==='POST') return createRegistrationInvite(db,p);
+      if(path[0]==='studio'&&path[1]==='invitations'&&path.length===3&&method==='DELETE') {
+        await revokeRegistrationInvite(db,p,uuid(path[2]));return {ok:true};
+      }
       if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {
         const decision=requestDecision.parse(await jsonBody(req));
         await decideRegistration(db,p,uuid(path[2]),decision);return {ok:true};

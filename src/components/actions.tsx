@@ -27,6 +27,8 @@ export function messageFor(code:string,locale:SiteLocale='ru') {
     VIDEO_BROWSER_UNSUPPORTED:'Откройте урок в браузере с поддержкой видео HLS.',EVENT_CLOSED:'Запись на встречу закрыта.',
     BROWSER_REGISTERED_CONTACT_SUPPORT:'Аккаунт привязан к другому браузеру. Обратитесь в поддержку.',
     TELEGRAM_CODE_INVALID:'Код истёк или уже использован. Запросите новый код в Telegram.',
+    TELEGRAM_NOT_CONFIGURED:'Бот Telegram ещё не подключён.',
+    REGISTRATION_LINK_INACTIVE:'Приглашение уже использовано, отозвано или просрочено.',
     INVITE_REQUIRED:'Для входа нужно приглашение команды JUICY.',
     PUBLISH_PARENT_FIRST:'Сначала опубликуйте родительский курс или модуль.',
     PARENT_AUDIENCE_MISMATCH:'Выберите тот же доступ, что у родительского курса или модуля.',

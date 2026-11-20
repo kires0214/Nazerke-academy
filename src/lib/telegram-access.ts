@@ -34,8 +34,35 @@ export function configuredTelegramBot() {
     process.env.APP_BASE_URL ? bot : undefined;
 }
 
-export function registrationRequiresOrder() {
-  return process.env.APP_ENV!=='DEV'||process.env.TELEGRAM_REQUIRE_ORDER_DETAILS!=='false';
+const inviteStart = /^\/start invite_([A-Za-z0-9_-]{32})$/;
+const activeInvite = 'used_at IS NULL AND revoked_at IS NULL AND expires_at>now()';
+
+export async function createRegistrationInvite(db:Db, actor:Principal) {
+  requireGrant(actor,'students.approve');
+  const bot=configuredTelegramBot();
+  check(bot,503,'TELEGRAM_NOT_CONFIGURED');
+  const token=randomBytes(24).toString('base64url');
+  const {rows:[invite]}=await db.query<{id:string;expires_at:string}>(
+    'INSERT INTO registration_invites(token_hash,created_by) VALUES($1,$2) RETURNING id,expires_at',[hash(token),actor.id]);
+  await audit(db,actor.id,'registration.link.create',invite.id);
+  return {id:invite.id,expiresAt:invite.expires_at,url:`https://t.me/${bot}?start=invite_${token}`};
+}
+
+export async function registrationInvites(db:Db, actor:Principal) {
+  requireGrant(actor,'students.approve');
+  return (await db.query<{id:string;created_at:string;expires_at:string;status:'active'|'used'|'revoked'|'expired'}>(`
+    SELECT id,created_at,expires_at,
+      CASE WHEN used_at IS NOT NULL THEN 'used' WHEN revoked_at IS NOT NULL THEN 'revoked'
+        WHEN expires_at<=now() THEN 'expired' ELSE 'active' END AS status
+    FROM registration_invites ORDER BY (${activeInvite}) DESC,created_at DESC LIMIT 100`)).rows;
+}
+
+export async function revokeRegistrationInvite(db:Db, actor:Principal,id:string) {
+  requireGrant(actor,'students.approve');
+  const {rows}=await db.query(`UPDATE registration_invites SET revoked_at=now()
+    WHERE id=$1 AND ${activeInvite} RETURNING id`,[id]);
+  check(rows[0],409,'REGISTRATION_LINK_INACTIVE');
+  await audit(db,actor.id,'registration.link.revoke',id);
 }
 
 // Called only from the verified private-chat webhook.
@@ -45,17 +72,17 @@ export async function handleTelegramAccess(
 ) {
   const login = text === '/start login' || text === '/login';
   const join = text === '/start request' || text === '/request';
-  const requireOrder=registrationRequiresOrder();
+  const openingInvite=!!text?.startsWith('/start invite_');
   if(!contact&&!text)return false;
 
   await lockTelegramRegistration(db,telegramId);
   const user = (await db.query<{ status: string }>('SELECT status FROM users WHERE telegram_id=$1 FOR SHARE', [telegramId])).rows[0];
   if (user?.status === 'blocked'||user?.status==='archived') {
-    if (login || join || text === '/start'||contact) await send(telegramId, 'Доступ приостановлен. Обратитесь к команде JUICY.',undefined,{remove_keyboard:true});
+    if (login || join || openingInvite || text === '/start'||contact) await send(telegramId, 'Доступ приостановлен. Обратитесь к команде JUICY.',undefined,{remove_keyboard:true});
     return true;
   }
-  if (user?.status === 'approved' && (login || join)) {
-    if (join) {
+  if (user?.status === 'approved' && (login || join || openingInvite)) {
+    if (!login) {
       await send(telegramId, 'У вас уже есть доступ. Отправьте /login, чтобы получить код входа.');
       return true;
     }
@@ -78,10 +105,34 @@ export async function handleTelegramAccess(
     undefined, { remove_keyboard: true });
     return true;
   }
+  const clearInvite=()=>db.query('DELETE FROM telegram_registration_invite_drafts WHERE telegram_id=$1',[telegramId]);
+  if(text==='/cancel'){
+    await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
+    await clearInvite();
+    await send(telegramId,'Заполнение отменено. Откройте свою ссылку-приглашение или отправьте /request для заявки с заказом.',undefined,{remove_keyboard:true});
+    return true;
+  }
+  if(join)await clearInvite();
+  const invalidInvite=()=>send(telegramId,'Ссылка недействительна, использована или срок её действия истёк. Попросите новую ссылку у команды JUICY или отправьте /request для заявки с заказом.',undefined,{remove_keyboard:true});
+  if(openingInvite){
+    const token=text?.match(inviteStart)?.[1];
+    const invite=token&&(await db.query<{id:string}>(`SELECT id FROM registration_invites WHERE token_hash=$1 AND ${activeInvite}`,[hash(token)])).rows[0];
+    if(!invite){await invalidInvite();return true;}
+    await db.query(`INSERT INTO telegram_registration_invite_drafts(telegram_id,invite_id) VALUES($1,$2)
+      ON CONFLICT(telegram_id) DO UPDATE SET invite_id=EXCLUDED.invite_id`,[telegramId,invite.id]);
+  }
+  const inviteDraft=(await db.query<{invite_id:string;active:boolean}>(`SELECT d.invite_id,(${activeInvite}) AS active
+    FROM telegram_registration_invite_drafts d JOIN registration_invites i ON i.id=d.invite_id WHERE d.telegram_id=$1`,[telegramId])).rows[0];
+  if(inviteDraft&&!inviteDraft.active){
+    await clearInvite();
+    await invalidInvite();
+    return true;
+  }
+
   const askPhone=async(typed=false)=>{
     const privacyUrl = baseUrl() + '/privacy';
     const intro=typed?'Номер в тексте не подтверждает контакт.':'Академия открыта по приглашениям.';
-    const steps=requireOrder?'имя, фамилию и данные заказа':'имя и фамилию';
+    const steps=inviteDraft?'имя и фамилию':'имя, фамилию, магазин и номер заказа';
     await send(telegramId, intro+' Нажмите «Поделиться номером телефона» под полем сообщения и подтвердите отправку своего контакта. Если кнопка скрыта, откройте клавиатуру бота рядом с полем ввода. Затем бот спросит '+steps+'. Обработка данных: '+privacyUrl,
       undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:false,is_persistent:true});
   };
@@ -90,17 +141,23 @@ export async function handleTelegramAccess(
     {keyboard:[Object.values(orderSourceLabels).map(text=>({text}))],resize_keyboard:true,one_time_keyboard:true});
   const askOrder=()=>send(telegramId,'Введите номер заказа из подтверждения покупки.',undefined,{remove_keyboard:true});
   const submit=async(name:string,number:string,source:keyof typeof orderSourceLabels|null=null,order:string|null=null)=>{
-    await db.query('INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,$2,$3,$4,$5) ON CONFLICT (telegram_id) DO NOTHING',
-      [telegramId,name,number,source,order]);
+    if(inviteDraft){
+      const {rows}=await db.query(`UPDATE registration_invites SET used_at=now()
+        WHERE id=$1 AND ${activeInvite} RETURNING id`,[inviteDraft.invite_id]);
+      if(!rows.length){
+        await clearInvite();
+        await invalidInvite();
+        return true;
+      }
+      await audit(db,null,'registration.link.use',inviteDraft.invite_id);
+    }
+    await db.query('INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number,invite_id) VALUES($1,$2,$3,$4,$5,$6)',
+      [telegramId,name,number,source,order,inviteDraft?.invite_id??null]);
     await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
+    if(inviteDraft)await clearInvite();
     await send(telegramId, 'Заявка отправлена. Если команда одобрит доступ, приглашение придёт в этот чат.',undefined,{remove_keyboard:true});
     return true;
   };
-  if(text==='/cancel'){
-    await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
-    await send(telegramId,'Заполнение отменено. Чтобы начать снова, отправьте /request.',undefined,{remove_keyboard:true});
-    return true;
-  }
   if(contact){
     const number=phone.safeParse(contact.phone_number.replace(/[\s().-]/g,''));
     if(String(contact.user_id)!==telegramId||!number.success){await askPhone();return true;}
@@ -111,12 +168,13 @@ export async function handleTelegramAccess(
   }
   const draft=(await db.query<{phone:string;display_name:string|null;order_source:keyof typeof orderSourceLabels|null}>(
     'SELECT phone,display_name,order_source FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId])).rows[0];
+  const resume=login||join||openingInvite||text==='/start';
   if(!draft){
-    if(login||join||text==='/start'||text&&!text.startsWith('/')){await askPhone(!login&&!join&&text!=='/start');return true;}
+    if(resume||text&&!text.startsWith('/')){await askPhone(!resume);return true;}
     return false;
   }
-  if(!requireOrder&&draft.display_name)return submit(draft.display_name,draft.phone);
-  if(login||join||text==='/start'){
+  if(inviteDraft&&draft.display_name)return submit(draft.display_name,draft.phone);
+  if(resume){
     if(!draft.display_name)await askName();
     else if(!draft.order_source)await askSource();
     else await askOrder();
@@ -126,7 +184,7 @@ export async function handleTelegramAccess(
   if(!draft.display_name){
     const name=fullName.safeParse(value);
     if(!name.success){await askName();return true;}
-    if(!requireOrder)return submit(name.data,draft.phone);
+    if(inviteDraft)return submit(name.data,draft.phone);
     await db.query("UPDATE telegram_registration_drafts SET display_name=$2,expires_at=now()+interval '30 minutes' WHERE telegram_id=$1",[telegramId,name.data]);
     await askSource();
     return true;
@@ -155,8 +213,8 @@ export async function redeemTelegramCode(db: Db, code: string, browserToken?: st
 
 export async function pendingRegistrationRequests(db: Db, actor: Principal) {
   requireGrant(actor, 'students.read');
-  return (await db.query<{ id: string; display_name: string; phone: string;order_source:keyof typeof orderSourceLabels|null;order_number:string|null }>(
-    "SELECT id,display_name,phone,order_source,order_number FROM registration_requests WHERE status='requested' ORDER BY created_at LIMIT 200")).rows;
+  return (await db.query<{ id: string; display_name: string; phone: string;order_source:keyof typeof orderSourceLabels|null;order_number:string|null;invite_id:string|null }>(
+    "SELECT id,display_name,phone,order_source,order_number,invite_id FROM registration_requests WHERE status='requested' ORDER BY created_at LIMIT 200")).rows;
 }
 
 export async function decideRegistration(db: Db, actor: Principal, id: string, decision:z.infer<typeof requestDecision>) {

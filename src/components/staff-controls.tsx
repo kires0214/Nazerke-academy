@@ -13,7 +13,7 @@ const grantNames:Record<Permission,string>={
   'recipes.manage':'Управлять рецептами','events.manage':'Управлять мастер-классами',
   'announcements.manage':'Управлять статьями и анонсами','media.upload':'Загружать файлы и видео',
   'media.delete':'Удалять файлы и видео','students.read':'Открывать список учеников и заявок',
-  'students.approve':'Рассматривать заявки и подтверждать доступ','students.block':'Блокировать, архивировать и восстанавливать аккаунты',
+  'students.approve':'Создавать приглашения, рассматривать заявки и подтверждать доступ','students.block':'Блокировать, архивировать и восстанавливать аккаунты',
   'devices.reset':'Сбрасывать привязку браузера','ambassadors.assign':'Выдавать допуск только к Школе Амбассадора','students.tracks':'Назначать допуски Kenwood, Braun и Школы Амбассадора',
   'support.read':'Читать обращения','support.respond':'Отвечать на обращения',
   'analytics.read':'Доступ к аналитике','audit.read':'Открывать журнал действий и посещений',
@@ -75,6 +75,35 @@ export function StudentTrackControls({id,current,onlyAmbassador=false}:{id:strin
       <p role="status">{status}</p>
     </form>
   </details>;
+}
+
+export function CreateInvitation() {
+  const [url,setUrl]=useState('');
+  const [status,setStatus]=useState('');
+  const [pending,setPending]=useState(false);
+  const router=useRouter();
+  return <section className="studio-record form-stack">
+    <h2>Ссылка-приглашение без заказа</h2>
+    <p>Одноразовая ссылка действует 7 дней. Заявка появится в Studio после того, как получатель поделится своим контактом и введёт имя и фамилию.</p>
+    <button type="button" className="btn btn-dark" disabled={pending} onClick={async()=>{
+      setPending(true);
+      setStatus('');
+      try{
+        const result=await apiCall('/api/studio/invitations',{});
+        setUrl(result.url);
+        router.refresh();
+      }catch(error){setStatus((error as Error).message);}
+      finally{setPending(false);}
+    }}>{pending?'Создаём…':'Создать приглашение'}</button>
+    {url?<div className="form-stack">
+      <label>Ссылка для получателя<input value={url} readOnly onFocus={event=>event.target.select()}/></label>
+      <button type="button" className="btn btn-outline" onClick={async()=>{
+        try{await navigator.clipboard.writeText(url);setStatus('Ссылка скопирована.');}
+        catch{setStatus('Выделите и скопируйте ссылку из поля.');}
+      }}>Скопировать ссылку</button>
+    </div>:null}
+    <p role="status">{status}</p>
+  </section>;
 }
 
 export function RegistrationControls({id,canAssignTracks,canAssignAdmin}:{

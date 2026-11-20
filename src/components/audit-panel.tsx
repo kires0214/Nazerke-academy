@@ -8,6 +8,8 @@ const names:Record<string,string>={
   'account.approve':'Подтвердил доступ','account.block':'Заблокировал аккаунт','account.unblock':'Снял блокировку',
   'account.learning':'Изменил учебный допуск','account.ambassador':'Изменил допуск амбассадора',
   'registration.invite':'Пригласил пользователя','registration.decline':'Отклонил заявку',
+  'registration.link.create':'Создал ссылку-приглашение','registration.link.revoke':'Отозвал ссылку-приглашение',
+  'registration.link.use':'Подал заявку по ссылке-приглашению',
   'content.draft':'Сохранил черновик','content.published':'Опубликовал материал','content.hidden':'Снял с публикации',
   'content.archived':'Архивировал материал','content.delete':'Удалил материал','media.upload':'Загрузил файл',
   'media.mux.create':'Начал загрузку видео','media.delete':'Удалил файл','lesson.complete':'Отметил урок завершённым',
