@@ -127,7 +127,7 @@ test('starter program tracks only published accessible courses and completes sep
 test('migrations are idempotent and checksum locked on a fresh PostgreSQL engine',async()=>{
   const { PGlite }=await import('@electric-sql/pglite'),{adapter}=await import('./helpers');const engine=new PGlite();
   try {await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));await engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine)));
-    assert.equal((await engine.query('SELECT * FROM schema_migrations')).rows.length,9);
+    assert.equal((await engine.query('SELECT * FROM schema_migrations')).rows.length,10);
     await engine.query("UPDATE schema_migrations SET sha256='changed'");await assert.rejects(engine.transaction(tx=>migrate(adapter(tx as unknown as typeof engine))),/MIGRATION_CHECKSUM_CHANGED/);
   }finally{await engine.close();}
 });

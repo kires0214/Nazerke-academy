@@ -63,6 +63,11 @@ test('a verified bot request stays outside users until Studio invites it, then o
 
     await sendUpdate(4, { text: '/start request' });
     assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact, true);
+    assert.match(messages.at(-1)!.text,/Нажмите «Поделиться номером телефона»/);
+    assert.equal((await sendUpdate(31,{text:'+12025550101'})).status,200);
+    assert.match(messages.at(-1)!.text,/Номер в тексте не подтверждает контакт/);
+    assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact,true);
+    assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
     assert.equal((await sendUpdate(5, { contact })).status, 200);
     assert.deepEqual(await (await sendUpdate(5, { contact })).json(), { duplicate: true });
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
@@ -125,6 +130,26 @@ test('a verified bot request stays outside users until Studio invites it, then o
     const staffLogin=await call('auth/telegram',{code:codeFromBot()},{device:tech.tokens.device});
     assert.equal(staffLogin.status,200);
     assert.equal((await staffLogin.json()).destination,'/admin');
+    const newStaff={session:staffLogin.cookies.get(names.session)?.value,device:staffLogin.cookies.get(names.device)?.value};
+    await sendUpdate(32,{text:'/login'});
+    const preArchive=codeFromBot();
+    const account='studio/accounts/'+approved.id;
+    assert.equal((await call(account,{action:'archive'},{tokens:newStaff})).status,200);
+    assert.equal((await call('auth/telegram',{code:preArchive},{device:tokens.device})).status,401);
+    await sendUpdate(33,{text:'/login'});
+    assert.match(messages.at(-1)!.text,/Доступ приостановлен/);
+    assert.equal((await call(account,{action:'delete'},{tokens:newStaff})).status,200);
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests WHERE telegram_id=$1',[telegramId])).rows.length,0);
+    await sendUpdate(34,{text:'/start request'});
+    assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact,true);
+    for(const [id,data] of [[35,{contact}],[36,{text:'Синтетический Ученик'}],[37,{text:'Kaspi'}],[38,{text:'TEST-123'}]] as const)
+      assert.equal((await sendUpdate(id,data)).status,200);
+    const again=await f.run(db=>pendingRegistrationRequests(db,tech.p));
+    assert.equal(again.length,1);
+    assert.notEqual(again[0].id,requests[0].id);
+    assert.equal((await call('studio/registration/'+again[0].id,{action:'invite'},{tokens:newStaff})).status,200);
+    const identity=(await f.engine.query<{id:string}>('SELECT id FROM users WHERE telegram_id=$1',[telegramId])).rows[0];
+    assert.notEqual(identity.id,approved.id);
   } finally {
     globalThis.fetch = originalFetch;
     await f.close();

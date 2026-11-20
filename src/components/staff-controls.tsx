@@ -13,7 +13,7 @@ const grantNames:Record<Permission,string>={
   'recipes.manage':'Управлять рецептами','events.manage':'Управлять мастер-классами',
   'announcements.manage':'Управлять статьями и анонсами','media.upload':'Загружать файлы и видео',
   'media.delete':'Удалять файлы и видео','students.read':'Открывать список учеников и заявок',
-  'students.approve':'Рассматривать заявки и подтверждать доступ','students.block':'Блокировать и разблокировать аккаунты',
+  'students.approve':'Рассматривать заявки и подтверждать доступ','students.block':'Блокировать, архивировать и восстанавливать аккаунты',
   'devices.reset':'Сбрасывать привязку браузера','ambassadors.assign':'Выдавать допуск только к Школе Амбассадора','students.tracks':'Назначать допуски Kenwood, Braun и Школы Амбассадора',
   'support.read':'Читать обращения','support.respond':'Отвечать на обращения',
   'analytics.read':'Доступ к аналитике','audit.read':'Открывать журнал действий и посещений',

@@ -122,7 +122,7 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         await deleteContent(db,p,uuid(path[2]));return {ok:true};
       }
       if(key==='studio/accounts' && method==='GET') {
-        return studioAccounts(db,p);
+        return studioAccounts(db,p,url.searchParams.get('view')==='archive');
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
       if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {

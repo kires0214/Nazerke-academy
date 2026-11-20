@@ -5,6 +5,7 @@ type ReplyMarkup = { remove_keyboard: true } | {
   keyboard: { text: string; request_contact?: true }[][];
   resize_keyboard: boolean;
   one_time_keyboard: boolean;
+  is_persistent?: boolean;
 };
 export async function telegramSend(chatId:string,body:string,fetcher:Fetcher=fetch,replyMarkup?:ReplyMarkup) {
   const secret=process.env.TELEGRAM_BOT_TOKEN;

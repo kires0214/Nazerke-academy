@@ -29,6 +29,9 @@ export async function rateLimit(db: Db, key: string, limit: number, seconds = 60
   const { rows } = await db.query<{hits:number}>('INSERT INTO rate_limits(key,bucket,hits) VALUES($1,$2,1) ON CONFLICT(key,bucket) DO UPDATE SET hits=rate_limits.hits+1 RETURNING hits',[key,bucket]);
   check(rows[0].hits <= limit,429,'RATE_LIMITED');
 }
+export async function lockTelegramRegistration(db:Db,telegramId:string) {
+  await db.query("SELECT pg_advisory_xact_lock(hashtextextended('telegram-registration:'||$1,0))",[telegramId]);
+}
 export function hasGrant(p: Principal, grant: Grant) { return p.status === 'approved' && (p.role === 'techadmin' || p.role === 'admin' && p.grants.includes(grant)); }
 export function isStudioRole(role: Role) { return role === 'admin' || role === 'techadmin'; }
 export function requireGrant(p: Principal, grant: Grant) { check(hasGrant(p,grant),403,'PERMISSION_DENIED'); }
@@ -48,7 +51,7 @@ export async function principal(db: Db, tokens: Tokens, allowPending = false): P
     WHERE s.token_hash=$1 AND d.binding_hash=$2 AND s.revoked_at IS NULL AND d.revoked_at IS NULL AND s.expires_at>now()
     FOR SHARE OF u,s,d`,[hash(tokens.session),hash(tokens.device)]);
   check(rows[0],401,'SESSION_INVALID');
-  check(rows[0].status !== 'blocked',403,'ACCOUNT_BLOCKED');
+  check(!['blocked','archived','deleted'].includes(rows[0].status),403,'ACCOUNT_BLOCKED');
   if (!allowPending) check(rows[0].status === 'approved',403,'APPROVAL_REQUIRED');
   const { rows: permissions } = await db.query<{permission:string}>('SELECT permission FROM admin_grants WHERE user_id=$1',[rows[0].id]);
   const { rows: scopes } = await db.query<{scope:string}>('SELECT scope FROM access_entitlements WHERE user_id=$1',[rows[0].id]);
@@ -78,7 +81,7 @@ export async function createLogin(db: Db, telegramId: string, browserToken?: str
 
 export async function resetDevice(db: Db, actor: Principal, userId: string) {
   requireGrant(actor,'devices.reset');
-  const { rows } = await db.query<{role:Role}>('SELECT role FROM users WHERE id=$1 FOR UPDATE',[userId]);
+  const { rows } = await db.query<{role:Role}>("SELECT role FROM users WHERE id=$1 AND status NOT IN ('archived','deleted') FOR UPDATE",[userId]);
   check(rows[0],404,'USER_NOT_FOUND');
   check(actor.role === 'techadmin' || !['admin','techadmin'].includes(rows[0].role),403,'STAFF_TECHADMIN_ONLY');
   await db.query('UPDATE sessions SET revoked_at=now() WHERE user_id=$1 AND revoked_at IS NULL',[userId]);

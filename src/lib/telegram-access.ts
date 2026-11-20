@@ -5,7 +5,7 @@ import type { Db } from './db';
 import { check } from './errors';
 import { baseUrl } from './http';
 import { telegramSend } from './providers';
-import { audit, createLogin, grants, hash, rateLimit, requireGrant, type Principal } from './security';
+import { audit, createLogin, grants, hash, lockTelegramRegistration, rateLimit, requireGrant, type Principal } from './security';
 import { orderSourceLabels } from './catalog';
 
 const phone = z.string().regex(/^\+?[0-9]{7,15}$/);
@@ -43,9 +43,10 @@ export async function handleTelegramAccess(
   const join = text === '/start request' || text === '/request';
   if(!contact&&!text)return false;
 
-  const user = (await db.query<{ status: string }>('SELECT status FROM users WHERE telegram_id=$1', [telegramId])).rows[0];
-  if (user?.status === 'blocked') {
-    if (login || join || text === '/start') await send(telegramId, 'Доступ закрыт. Обратитесь к команде JUICY.');
+  await lockTelegramRegistration(db,telegramId);
+  const user = (await db.query<{ status: string }>('SELECT status FROM users WHERE telegram_id=$1 FOR SHARE', [telegramId])).rows[0];
+  if (user?.status === 'blocked'||user?.status==='archived') {
+    if (login || join || text === '/start'||contact) await send(telegramId, 'Доступ приостановлен. Обратитесь к команде JUICY.',undefined,{remove_keyboard:true});
     return true;
   }
   if (user?.status === 'approved' && (login || join)) {
@@ -63,21 +64,20 @@ export async function handleTelegramAccess(
   }
   if (user?.status === 'approved') return !!contact;
 
-  await db.query("SELECT pg_advisory_xact_lock(hashtextextended('telegram-registration:'||$1,0))",[telegramId]);
   await db.query('DELETE FROM telegram_registration_drafts WHERE expires_at<=now()');
   const existing = (await db.query<{ status: string }>('SELECT status FROM registration_requests WHERE telegram_id=$1', [telegramId])).rows[0];
   if (existing) {
-    if(!login&&!join&&!contact&&text!=='/start')return true;
     await send(telegramId, existing.status === 'requested'
       ? 'Заявка уже отправлена. Мы сообщим о решении здесь.'
       : 'Заявка рассмотрена. Вопросы о доступе можно задать команде JUICY.',
     undefined, { remove_keyboard: true });
     return true;
   }
-  const askPhone=async()=>{
+  const askPhone=async(typed=false)=>{
     const privacyUrl = baseUrl() + '/privacy';
-    await send(telegramId, 'Академия открыта по приглашениям. Отправьте свой номер телефона. Затем введите имя, фамилию и данные заказа. Обработка данных: ' + privacyUrl,
-      undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:true});
+    const intro=typed?'Номер в тексте не подтверждает контакт.':'Академия открыта по приглашениям.';
+    await send(telegramId, intro+' Нажмите «Поделиться номером телефона» под полем сообщения и подтвердите отправку своего контакта. Если кнопка скрыта, откройте клавиатуру бота рядом с полем ввода. Затем бот спросит имя, фамилию и данные заказа. Обработка данных: '+privacyUrl,
+      undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:false,is_persistent:true});
   };
   const askName=()=>send(telegramId,'Введите ваше имя и фамилию одним сообщением.',undefined,{remove_keyboard:true});
   const askSource=()=>send(telegramId,'Где оформлен заказ? Выберите магазин.',undefined,
@@ -89,7 +89,7 @@ export async function handleTelegramAccess(
     return true;
   }
   if(contact){
-    const number=phone.safeParse(contact.phone_number.trim());
+    const number=phone.safeParse(contact.phone_number.replace(/[\s().-]/g,''));
     if(String(contact.user_id)!==telegramId||!number.success){await askPhone();return true;}
     await db.query(`INSERT INTO telegram_registration_drafts(telegram_id,phone,expires_at) VALUES($1,$2,now()+interval '30 minutes')
       ON CONFLICT(telegram_id) DO UPDATE SET phone=EXCLUDED.phone,display_name=NULL,order_source=NULL,expires_at=EXCLUDED.expires_at`,[telegramId,number.data]);
@@ -99,7 +99,7 @@ export async function handleTelegramAccess(
   const draft=(await db.query<{phone:string;display_name:string|null;order_source:keyof typeof orderSourceLabels|null}>(
     'SELECT phone,display_name,order_source FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId])).rows[0];
   if(!draft){
-    if(login||join||text==='/start'){await askPhone();return true;}
+    if(login||join||text==='/start'||text&&!text.startsWith('/')){await askPhone(!login&&!join&&text!=='/start');return true;}
     return false;
   }
   if(login||join||text==='/start'){
@@ -134,8 +134,11 @@ export async function handleTelegramAccess(
 }
 
 export async function redeemTelegramCode(db: Db, code: string, browserToken?: string) {
+  const codeHash=hash(code);
+  // Lock the account before its code, the same order used by account lifecycle changes.
+  await db.query('SELECT id FROM users WHERE telegram_id=(SELECT telegram_id FROM telegram_login_codes WHERE code_hash=$1 AND expires_at>now()) FOR UPDATE',[codeHash]);
   const { rows } = await db.query<{ telegram_id: string }>(
-    'DELETE FROM telegram_login_codes WHERE code_hash=$1 AND expires_at>now() RETURNING telegram_id', [hash(code)]);
+    'DELETE FROM telegram_login_codes WHERE code_hash=$1 AND expires_at>now() RETURNING telegram_id', [codeHash]);
   check(rows[0], 401, 'TELEGRAM_CODE_INVALID');
   return createLogin(db, String(rows[0].telegram_id), browserToken);
 }
@@ -157,6 +160,9 @@ export async function decideRegistration(db: Db, actor: Principal, id: string, d
       requireGrant(actor,'students.tracks');
     }
   }
+  const identity=(await db.query<{telegram_id:string}>('SELECT telegram_id FROM registration_requests WHERE id=$1',[id])).rows[0];
+  check(identity,404,'REGISTRATION_NOT_FOUND');
+  await lockTelegramRegistration(db,String(identity.telegram_id));
   const { rows } = await db.query<{ telegram_id: string; display_name: string; status: string }>(
     'SELECT telegram_id,display_name,status FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
   const request = rows[0];

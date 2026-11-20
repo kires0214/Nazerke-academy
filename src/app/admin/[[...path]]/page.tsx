@@ -30,7 +30,7 @@ const contentSections=[
   {slug:'events',label:'Мастер-классы',kinds:['event']},
 ];
 const accountRoles:Record<string,string>={student:'Ученик',admin:'Администратор',techadmin:'Tech Admin'};
-const accountStatuses:Record<string,string>={approved:'Допущен',pending:'Ожидает решения',blocked:'Заблокирован'};
+const accountStatuses:Record<string,string>={approved:'Допущен',pending:'Ожидает решения',blocked:'Заблокирован',archived:'В архиве'};
 const previewHref=(node:{id:string})=>'/admin/preview/'+node.id;
 export default async function Page({params,searchParams}:{params:Promise<{path?:string[]}>;searchParams:Promise<Record<string,string|string[]|undefined>>}) {
   await studioData();
@@ -144,15 +144,18 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
       if(!hasGrant(user,'students.read'))notFound();
       const requests=await pendingRegistrationRequests(db,user);
       const view=(await searchParams).view;
-      const showRequests=view==='requests'||view!=='accounts'&&!!requests.length;
+      const archive=view==='archive';
+      const showRequests=view==='requests'||!archive&&view!=='accounts'&&!!requests.length;
       const canApprove=hasGrant(user,'students.approve'),canEditTracks=hasGrant(user,'students.tracks');
       const canEditSchool=hasGrant(user,'ambassadors.assign'),tech=user.role==='techadmin';
-      const users=showRequests?[]:await studioAccounts(db,user);
-      const allGrants=tech&&!showRequests?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
+      const canBlock=hasGrant(user,'students.block');
+      const users=showRequests?[]:await studioAccounts(db,user,archive);
+      const allGrants=tech&&!showRequests&&!archive?(await db.query<{user_id:string;permission:string}>('SELECT user_id,permission FROM admin_grants')).rows:[];
       return <><h1>Доступ в академию</h1>
         <nav className="studio-content-nav" aria-label="Управление доступом">
-          <Link href="/admin/users?view=accounts" aria-current={!showRequests?'page':undefined}>Аккаунты</Link>
+          <Link href="/admin/users?view=accounts" aria-current={!showRequests&&!archive?'page':undefined}>Аккаунты</Link>
           <Link href="/admin/users?view=requests" aria-current={showRequests?'page':undefined}>Заявки{requests.length?' ('+requests.length+')':''}</Link>
+          <Link href="/admin/users?view=archive" aria-current={archive?'page':undefined}>Архив</Link>
         </nav>
         {showRequests?<StudioList key="requests" searchLabel="Имя, телефон или заказ" empty="Новых заявок нет." filters={[
           {key:'source',label:'Магазин',options:Object.entries(orderSourceLabels)},
@@ -170,27 +173,36 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
               </div>
             </details>:null}
           </section>,
-        }))}/>:<StudioList key="accounts" searchLabel="Имя пользователя" empty="Аккаунтов пока нет." filters={[
-          {key:'status',label:'Статус',options:Object.entries(accountStatuses)},
+        }))}/>:<StudioList key={archive?'archive':'accounts'} searchLabel="Имя пользователя" empty={archive?'Архив пуст.':'Аккаунтов пока нет.'} filters={[
+          ...(!archive?[{key:'status',label:'Статус',options:Object.entries(accountStatuses).filter(([status])=>status!=='archived')}]:[]),
           {key:'role',label:'Роль',options:tech?Object.entries(accountRoles):[['student','Ученик']]},
           {key:'track',label:'Учебный допуск',options:[...Object.entries(trackLabels),['none','Без допусков']]},
           {key:'session',label:'Сеанс',options:[['active','Активный'],['inactive','Нет активного']]},
         ]} rows={users.map(u=>{
           const current=learningTracks.filter(track=>u.tracks.includes(track));
-          const manageable=u.role!=='techadmin'&&(tech||u.role==='student'&&(canApprove||hasGrant(user,'students.block')||
+          const manageable=u.role!=='techadmin'&&(tech||u.role==='student'&&(canApprove||canBlock||
             hasGrant(user,'devices.reset')||canEditTracks||canEditSchool));
+          const accountUrl='/api/studio/accounts/'+u.id;
+          const deleteAccount=tech&&u.role!=='techadmin'?<ActionButton url={accountUrl} payload={{action:'delete'}} label="Удалить аккаунт" variant="outline"
+            confirm="Удалить аккаунт без восстановления? Прогресс, избранное, записи и данные заявки будут удалены. Для повторного входа потребуется новое приглашение."/>:null;
           return {id:u.id,terms:u.display_name,values:{status:[u.status],role:[u.role],track:current.length?current:['none'],
             session:[u.active_session?'active':'inactive']},content:<section className="studio-record">
             <div className="studio-record-heading"><h2>{u.display_name}</h2><span className="studio-status">{accountStatuses[u.status]}</span></div>
             <p>{accountRoles[u.role]} · {u.active_session?'Активный сеанс':'Нет активного сеанса'}</p>
             {u.role==='student'?<p>{current.length?current.map(track=>trackLabels[track]).join(' · '):'Без учебных допусков'}</p>:null}
             {u.last_login?<p className="studio-hint">Последний вход · {new Date(u.last_login).toLocaleString('ru-RU',{timeZone:'Asia/Qyzylorda'})}</p>:null}
-            {manageable?<details className="studio-disclosure"><summary>Управление аккаунтом</summary><div>
+            {archive?<div className="detail-actions">
+              {canBlock&&manageable?<ActionButton url={accountUrl} payload={{action:'restore'}} label="Восстановить из архива"/>:null}
+              {deleteAccount}
+            </div>:manageable?<details className="studio-disclosure"><summary>Управление аккаунтом</summary><div>
               <div className="detail-actions">
               {u.status==='pending'&&canApprove?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'approve'}} label="Подтвердить доступ"/>:null}
-              {hasGrant(user,'students.block')?<ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:u.status==='blocked'?'unblock':'block'}}
+              {canBlock?<ActionButton url={accountUrl} payload={{action:u.status==='blocked'?'unblock':'block'}}
                 label={u.status==='blocked'?'Разблокировать':'Заблокировать'} variant="outline"
                 confirm={u.status==='blocked'?undefined:'Заблокировать аккаунт и завершить его сеанс?'}/>:null}
+              {canBlock?<ActionButton url={accountUrl} payload={{action:'archive'}} label="В архив" variant="outline"
+                confirm="Перенести аккаунт в архив и завершить его сеанс? Позже доступ можно восстановить."/>:null}
+              {deleteAccount}
               {hasGrant(user,'devices.reset')?<ActionButton url={'/api/studio/devices/'+u.id} label="Сбросить браузер" variant="outline" confirm="Сбросить привязку браузера пользователя?"/>:null}
               {tech&&u.role==='admin'?<>
                 <ActionButton url={'/api/studio/accounts/'+u.id} payload={{action:'learning',enabled:true}} label="Дать учебный допуск" variant="outline"/>

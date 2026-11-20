@@ -60,6 +60,39 @@ test('role matrix denies restricted actions and verifies ordinary learner/ambass
   }finally{await f.close();}
 });
 
+test('archive revokes access, restores the original status and limits permanent removal to Tech Admin',async()=>{
+  const f=await fixture();
+  try{
+    const call=client(f),tech=await f.account('techadmin'),learner=await f.account();
+    const manager=await f.account('admin','approved',[],['students.read','students.block','devices.reset']);
+    const staff=await f.account('admin','approved',[],['students.read']);
+    const act=(id:string,action:string,tokens:Tokens)=>call('studio/accounts/'+id,'POST',tokens,{action});
+    assert.equal((await act(learner.id,'archive',learner.tokens)).status,403);
+    assert.equal((await act(staff.id,'archive',manager.tokens)).status,403);
+    assert.equal((await act(tech.id,'delete',tech.tokens)).status,403);
+    assert.equal((await act(learner.id,'archive',manager.tokens)).status,200);
+    assert.equal((await call('profile','GET',learner.tokens)).status,401);
+    const archived=await (await call('studio/accounts?view=archive','GET',manager.tokens)).json();
+    assert.ok(archived.some((user:{id:string;status:string})=>user.id===learner.id&&user.status==='archived'));
+    const current=await (await call('studio/accounts','GET',manager.tokens)).json();
+    assert.ok(!current.some((user:{id:string})=>user.id===learner.id));
+    assert.equal((await act(learner.id,'unblock',manager.tokens)).status,409);
+    assert.equal((await act(learner.id,'delete',manager.tokens)).status,403);
+    assert.equal((await act(learner.id,'restore',manager.tokens)).status,200);
+    assert.equal((await act(learner.id,'block',manager.tokens)).status,200);
+    assert.equal((await act(learner.id,'archive',manager.tokens)).status,200);
+    assert.equal((await act(learner.id,'restore',manager.tokens)).status,200);
+    assert.deepEqual((await f.engine.query('SELECT status,archived_from FROM users WHERE id=$1',[learner.id])).rows,
+      [{status:'blocked',archived_from:null}]);
+    assert.equal((await act(learner.id,'delete',tech.tokens)).status,200);
+    assert.equal((await act(learner.id,'delete',tech.tokens)).status,404);
+    assert.equal((await f.engine.query('SELECT id FROM devices WHERE user_id=$1',[learner.id])).rows.length,0);
+    assert.deepEqual((await f.engine.query('SELECT status,telegram_id,display_name FROM users WHERE id=$1',[learner.id])).rows,
+      [{status:'deleted',telegram_id:null,display_name:'Удалённый аккаунт'}]);
+    assert.equal((await f.engine.query("SELECT id FROM audit_events WHERE operation='account.delete' AND entity_id=$1",[learner.id])).rows.length,1);
+  }finally{await f.close();}
+});
+
 test('audit uses the authentic actor, counts repeated allowed views, and scopes admin results',async()=>{
   const f=await fixture();
   try{
