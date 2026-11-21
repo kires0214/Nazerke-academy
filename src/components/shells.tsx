@@ -33,9 +33,9 @@ export function PublicShell({children,user,locale='ru'}:{children:ReactNode;user
       {approved?t('В Академию','Go to Academy'):user?t('Мой доступ','My access'):t('Войти','Sign in')}</Link>
     {user?<ProfileMenu locale={locale} approved={approved} studio={approved&&!!user.role&&isStudioRole(user.role)}/>:null}
   </SiteHeader>
-    <main id="main" className="wrap">{children}</main><footer className="footer"><div className="wrap foot-grid"><Logo/>
-      <div className="foot-nav"><Link href="/contacts">{t('Контакты','Contact')}</Link><Link href="/privacy">{t('Конфиденциальность','Privacy')}</Link>
-        <Link href="/terms">{t('Правила доступа','Access rules')}</Link></div>
+    <main id="main" className="wrap public-main">{children}</main><footer className="footer"><div className="wrap foot-grid"><Logo/>
+      <nav className="foot-nav" aria-label={t('Ссылки сайта','Site footer links')}><Link href="/contacts">{t('Контакты','Contact')}</Link><Link href="/privacy">{t('Конфиденциальность','Privacy')}</Link>
+        <Link href="/terms">{t('Правила доступа','Access rules')}</Link></nav>
       <small>{t('Готовим с уверенностью.','Cook with confidence.')}<br/>{t('Учимся вместе.','Learn together.')}</small></div></footer>
   </ReaderLanguageProvider>;
 }

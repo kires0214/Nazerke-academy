@@ -4,7 +4,7 @@ import type { AuditFilter,auditPage } from '@/lib/activity';
 const names:Record<string,string>={
   'page.view':'Открыл страницу','device.register':'Привязал браузер','device.reset':'Сбросил привязку браузера',
   'session.replace':'Вошёл через Telegram','session.logout':'Вышел из аккаунта',
-  'system.bootstrap_techadmin':'Назначен первый Tech Admin','account.staff':'Изменил роль или права',
+  'system.bootstrap_techadmin':'Назначен первый Tech Admin','system.promote_techadmin':'Назначил Tech Admin','account.staff':'Изменил роль или права',
   'account.approve':'Подтвердил доступ','account.block':'Заблокировал аккаунт','account.unblock':'Снял блокировку',
   'account.learning':'Изменил учебный допуск','account.ambassador':'Изменил допуск амбассадора',
   'registration.invite':'Пригласил пользователя','registration.decline':'Отклонил заявку',
@@ -31,7 +31,7 @@ export function AuditPanel({result,filter,full}:{result:Awaited<ReturnType<typeo
       <label>Поиск<input name="q" defaultValue={filter.q} maxLength={120} placeholder="Имя, путь или действие"/></label>
       <button className="btn btn-dark" type="submit">Показать</button>
     </form>
-    {result.rows.length?<div className="audit-table-wrap" tabIndex={0} aria-label="Таблица журнала">
+    {result.rows.length?<div className="audit-table-wrap" role="region" tabIndex={0} aria-label="Таблица журнала">
       <table className="audit-table">
         <caption className="sr-only">Действия и посещения за выбранный период</caption>
         <thead><tr><th scope="col">Когда</th><th scope="col">Кто</th><th scope="col">Действие</th><th scope="col">Страница или объект</th><th scope="col">Посещений</th></tr></thead>
