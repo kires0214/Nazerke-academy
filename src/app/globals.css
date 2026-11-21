@@ -426,13 +426,15 @@ body,.academy-content,.admin-panel{font-size:var(--type-body);line-height:1.6}
 .public-main :is(.hero,.about) p,.public-home .banner p{font-size:var(--type-body);line-height:1.65}
 .hero .cta{margin-top:18px}
 .public-main :is(.hero,.about) .portrait-frame{width:100%;height:auto;aspect-ratio:1.13;align-self:center}
+.public-main .about-photo img{object-position:center 38%}
 .public-home .about h2,.public-home .banner h2{margin:6px 0 12px}
 .public-main .about .lead{font:400 clamp(20px,2.2vw,26px)/1.35 var(--serif)}
 .public-home .banner{padding:clamp(17px,3.2vw,40px)}
 .public-home .section-cards{grid-template-columns:repeat(5,minmax(0,1fr))}
 .section-card{min-width:0}
 .section-card strong{font-size:var(--type-body)}
-.card-img{height:auto;aspect-ratio:16/10}
+.card-img{height:auto;aspect-ratio:16/10;flex:none}
+.card-img img{position:absolute;inset:0;display:block}
 .card-body{padding:clamp(12px,1.65vw,18px)}
 .card-body .meta{font-size:11px;color:var(--accent-text)}
 .card-body h3{font-size:var(--type-card);line-height:1.25}
@@ -459,8 +461,12 @@ body,.academy-content,.admin-panel{font-size:var(--type-body);line-height:1.6}
   .foot-grid{flex-wrap:wrap}
 }
 @media(max-width:520px){
+  .header-navigation{justify-content:center;flex-wrap:wrap;overflow:visible}
   .public-home .section-cards{grid-template-columns:minmax(0,1fr)}
   .public-home .section-card:nth-child(n){grid-column:auto}
   .public-main :is(.hero,.about) .portrait-frame{aspect-ratio:1}
+  .contacts-block .actions{display:grid;grid-template-columns:minmax(0,1fr);width:100%}
+  .foot-grid .foot-nav{justify-content:center}
+  .foot-grid>small{text-align:center}
   :is(.public-main,.academy-content,.admin-panel) :is(input:not([type=checkbox],[type=radio]),textarea,select){font-size:16px}
 }
