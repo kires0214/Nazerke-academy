@@ -18,7 +18,7 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Ambassador role | Student denied protected ambassador lessons; ambassador allowed |
 | Techadmin RBAC | Techadmin grant updates audited; normal admin cannot self-elevate |
 | Telegram invite and login | Verify private self-contact, staff-only approval, no account before invite, forged webhook rejection and expired/replayed code rejection |
-| Invitation links | Authorized staff can create and revoke a one-time link. The link permits one reviewed request without order details. Public requests require a store and order number. Expired, revoked and reused links are rejected. |
+| Invitation links | Authorized staff can create single-use and reusable links with a three-day lifetime and revoke active links. Invitations waive order details and still require review. The public flow requires a store and an alphanumeric order number. Expired and revoked links are rejected. A single-use link is exhausted after the first submitted request. |
 | Approval | Pending/blocked users do not receive private content/signed media |
 | Device | 2 parallel first logins allow 1; second browser denied; admin reset audited |
 | Logout | Revoked token denied immediately for API and private media |

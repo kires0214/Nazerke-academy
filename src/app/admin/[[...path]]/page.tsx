@@ -13,7 +13,7 @@ import { hasGrant,isStudioRole,principal } from '@/lib/security';
 import { canDeleteContent,canEditContent,kinds,listContent } from '@/lib/content';
 import { supportHistory } from '@/lib/support';
 import { check } from '@/lib/errors';
-import { academyPostSections,catalogGroups,contentTracks,groupFor,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
+import { academyPostSections,catalogGroups,contentTracks,groupFor,inviteModeLabels,learningTracks,orderSourceLabels,sectionFor,trackLabels } from '@/lib/catalog';
 import { pendingRegistrationRequests,registrationInvites } from '@/lib/telegram-access';
 import { auditPage,canManageMedia,readAuditFilter } from '@/lib/activity';
 import { studioAccounts } from '@/lib/accounts';
@@ -166,31 +166,32 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
         </nav>
         {showInvites?<div className="form-stack">
           <CreateInvitation/>
-          <StudioList key="invites" searchLabel="Дата или статус" empty="Приглашений пока нет." filters={[
+          <StudioList key="invites" searchLabel="Дата, тип или статус" empty="Приглашений пока нет." filters={[
+            {key:'mode',label:'Тип ссылки',options:Object.entries(inviteModeLabels)},
             {key:'status',label:'Статус',options:Object.entries(inviteStatuses)},
           ]} rows={invites.map(invite=>({
             id:invite.id,
-            terms:[inviteDate(invite.created_at),inviteDate(invite.expires_at),inviteStatuses[invite.status]].join(' '),
-            values:{status:[invite.status]},
+            terms:[inviteModeLabels[invite.mode],inviteDate(invite.created_at),inviteDate(invite.expires_at),inviteStatuses[invite.status]].join(' '),
+            values:{mode:[invite.mode],status:[invite.status]},
             content:<section className="studio-record">
-              <div className="studio-record-heading"><h2>От {inviteDate(invite.created_at)}</h2><span className="studio-status">{inviteStatuses[invite.status]}</span></div>
+              <div className="studio-record-heading"><h2>{inviteModeLabels[invite.mode]} · {inviteDate(invite.created_at)}</h2><span className="studio-status">{inviteStatuses[invite.status]}</span></div>
               <p>Срок действия до {inviteDate(invite.expires_at)}</p>
               {invite.status==='active'?<ActionButton url={'/api/studio/invitations/'+invite.id} method="DELETE" label="Отозвать" variant="outline" confirm="Отозвать эту ссылку-приглашение?"/>:null}
             </section>,
           }))}/>
         </div>:showRequests?<StudioList key="requests" searchLabel="Имя, телефон или заказ" empty="Новых заявок нет." filters={[
-          {key:'channel',label:'Тип заявки',options:[['invite','По приглашению'],['order','С заказом'],['legacy','Без данных заказа']]},
+          {key:'channel',label:'Тип заявки',options:[['invite','По приглашению'],['order','С сайта']]},
           {key:'source',label:'Магазин',options:Object.entries(orderSourceLabels)},
         ]} rows={requests.map(request=>({
           id:request.id,terms:[request.display_name,request.phone,request.order_number].filter(Boolean).join(' '),
-          values:{channel:[request.invite_id?'invite':request.order_source?'order':'legacy'],source:request.order_source?[request.order_source]:[]},
+          values:{channel:[request.invite_id?'invite':'order'],source:request.order_source?[request.order_source]:[]},
           content:<section className="studio-record">
             <h2>{request.display_name}</h2><p>{request.phone}</p>
             {request.invite_id?<p className="studio-hint">По ссылке-приглашению · без заказа</p>:request.order_source&&request.order_number?
               <p>{orderSourceLabels[request.order_source]} · заказ <strong>{request.order_number}</strong></p>:
-              <p className="studio-hint">Данные заказа не указаны.</p>}
+              <p className="studio-hint">Ожидает магазин и номер заказа. Заявитель может дополнить данные в Telegram.</p>}
             {canApprove?<details className="studio-disclosure"><summary>Рассмотреть заявку</summary>
-              <div><RegistrationControls id={request.id} canAssignTracks={canEditTracks} canAssignAdmin={tech}/>
+              <div>{request.invite_id||request.order_source?<RegistrationControls id={request.id} canAssignTracks={canEditTracks} canAssignAdmin={tech}/>:null}
                 <ActionButton url={'/api/studio/registration/'+request.id} payload={{action:'decline'}} label="Отклонить" variant="outline" confirm="Отклонить заявку на приглашение?"/>
               </div>
             </details>:null}

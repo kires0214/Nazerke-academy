@@ -29,6 +29,7 @@ export function messageFor(code:string,locale:SiteLocale='ru') {
     TELEGRAM_CODE_INVALID:'Код истёк или уже использован. Запросите новый код в Telegram.',
     TELEGRAM_NOT_CONFIGURED:'Бот Telegram ещё не подключён.',
     REGISTRATION_LINK_INACTIVE:'Приглашение уже использовано, отозвано или просрочено.',
+    REGISTRATION_ORDER_REQUIRED:'Подождите, пока заявитель укажет магазин и номер заказа в Telegram.',
     INVITE_REQUIRED:'Для входа нужно приглашение команды JUICY.',
     PUBLISH_PARENT_FIRST:'Сначала опубликуйте родительский курс или модуль.',
     PARENT_AUDIENCE_MISMATCH:'Выберите тот же доступ, что у родительского курса или модуля.',

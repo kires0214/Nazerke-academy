@@ -6,12 +6,11 @@ import { check } from './errors';
 import { baseUrl } from './http';
 import { telegramSend } from './providers';
 import { audit, createLogin, grants, hash, lockTelegramRegistration, rateLimit, requireGrant, type Principal } from './security';
-import { orderSourceLabels } from './catalog';
+import { orderSourceLabels, type InviteMode } from './catalog';
 
 const phone = z.string().regex(/^\+?[0-9]{7,15}$/);
 const fullName=z.string().min(3).max(120).regex(/^\p{L}[\p{L}\p{M}'’.-]*(?: \p{L}[\p{L}\p{M}'’.-]*)+$/u);
-const orderNumber=z.string().min(1).max(80).regex(/^[\p{L}\p{N}#№][\p{L}\p{N} /._#№-]*$/u)
-  .refine(value=>/[\p{L}\p{N}]/u.test(value));
+const orderNumber=z.string().min(1).max(80).regex(/^[\p{L}\p{Nd}]+$/u);
 const orderSources:Record<string,keyof typeof orderSourceLabels>={
   kaspi:'kaspi',каспи:'kaspi',kenwood:'kenwood',кенвуд:'kenwood','сайт kenwood':'kenwood',
   braun:'braun',браун:'braun','сайт braun':'braun',
@@ -34,24 +33,26 @@ export function configuredTelegramBot() {
     process.env.APP_BASE_URL ? bot : undefined;
 }
 
-const inviteStart = /^\/start invite_([A-Za-z0-9_-]{32})$/;
+const inviteStart = /^\/start invite_(multi_)?([A-Za-z0-9_-]{32})$/;
 const activeInvite = 'used_at IS NULL AND revoked_at IS NULL AND expires_at>now()';
+export const registrationInviteInput=z.object({mode:z.enum(['single','multi']).default('single')}).strict();
 
-export async function createRegistrationInvite(db:Db, actor:Principal) {
+export async function createRegistrationInvite(db:Db, actor:Principal, mode:InviteMode) {
   requireGrant(actor,'students.approve');
   const bot=configuredTelegramBot();
   check(bot,503,'TELEGRAM_NOT_CONFIGURED');
   const token=randomBytes(24).toString('base64url');
   const {rows:[invite]}=await db.query<{id:string;expires_at:string}>(
-    'INSERT INTO registration_invites(token_hash,created_by) VALUES($1,$2) RETURNING id,expires_at',[hash(token),actor.id]);
-  await audit(db,actor.id,'registration.link.create',invite.id);
-  return {id:invite.id,expiresAt:invite.expires_at,url:`https://t.me/${bot}?start=invite_${token}`};
+    'INSERT INTO registration_invites(token_hash,created_by,mode) VALUES($1,$2,$3) RETURNING id,expires_at',[hash(token),actor.id,mode]);
+  await audit(db,actor.id,'registration.link.create',invite.id,{mode});
+  const prefix=mode==='multi'?'invite_multi_':'invite_';
+  return {id:invite.id,expiresAt:invite.expires_at,url:`https://t.me/${bot}?start=${prefix}${token}`};
 }
 
 export async function registrationInvites(db:Db, actor:Principal) {
   requireGrant(actor,'students.approve');
-  return (await db.query<{id:string;created_at:string;expires_at:string;status:'active'|'used'|'revoked'|'expired'}>(`
-    SELECT id,created_at,expires_at,
+  return (await db.query<{id:string;mode:InviteMode;created_at:string;expires_at:string;status:'active'|'used'|'revoked'|'expired'}>(`
+    SELECT id,mode,created_at,expires_at,
       CASE WHEN used_at IS NOT NULL THEN 'used' WHEN revoked_at IS NOT NULL THEN 'revoked'
         WHEN expires_at<=now() THEN 'expired' ELSE 'active' END AS status
     FROM registration_invites ORDER BY (${activeInvite}) DESC,created_at DESC LIMIT 100`)).rows;
@@ -97,8 +98,9 @@ export async function handleTelegramAccess(
   if (user?.status === 'approved') return !!contact;
 
   await db.query('DELETE FROM telegram_registration_drafts WHERE expires_at<=now()');
-  const existing = (await db.query<{ status: string }>('SELECT status FROM registration_requests WHERE telegram_id=$1', [telegramId])).rows[0];
-  if (existing) {
+  const existing = (await db.query<{status:string;invite_id:string|null;order_source:string|null}>(
+    'SELECT status,invite_id,order_source FROM registration_requests WHERE telegram_id=$1',[telegramId])).rows[0];
+  if (existing && (existing.status!=='requested'||existing.invite_id||existing.order_source)) {
     await send(telegramId, existing.status === 'requested'
       ? 'Заявка уже отправлена. Мы сообщим о решении здесь.'
       : 'Заявка рассмотрена. Вопросы о доступе можно задать команде JUICY.',
@@ -115,13 +117,14 @@ export async function handleTelegramAccess(
   if(join)await clearInvite();
   const invalidInvite=()=>send(telegramId,'Ссылка недействительна, использована или срок её действия истёк. Попросите новую ссылку у команды JUICY или отправьте /request для заявки с заказом.',undefined,{remove_keyboard:true});
   if(openingInvite){
-    const token=text?.match(inviteStart)?.[1];
-    const invite=token&&(await db.query<{id:string}>(`SELECT id FROM registration_invites WHERE token_hash=$1 AND ${activeInvite}`,[hash(token)])).rows[0];
+    const match=text?.match(inviteStart);
+    const invite=match&&(await db.query<{id:string}>(`SELECT id FROM registration_invites WHERE token_hash=$1 AND mode=$2 AND ${activeInvite}`,
+      [hash(match[2]),match[1]?'multi':'single'])).rows[0];
     if(!invite){await invalidInvite();return true;}
     await db.query(`INSERT INTO telegram_registration_invite_drafts(telegram_id,invite_id) VALUES($1,$2)
       ON CONFLICT(telegram_id) DO UPDATE SET invite_id=EXCLUDED.invite_id`,[telegramId,invite.id]);
   }
-  const inviteDraft=(await db.query<{invite_id:string;active:boolean}>(`SELECT d.invite_id,(${activeInvite}) AS active
+  const inviteDraft=(await db.query<{invite_id:string;mode:InviteMode;active:boolean}>(`SELECT d.invite_id,i.mode,(${activeInvite}) AS active
     FROM telegram_registration_invite_drafts d JOIN registration_invites i ON i.id=d.invite_id WHERE d.telegram_id=$1`,[telegramId])).rows[0];
   if(inviteDraft&&!inviteDraft.active){
     await clearInvite();
@@ -130,20 +133,31 @@ export async function handleTelegramAccess(
   }
 
   const askPhone=async(typed=false)=>{
-    const privacyUrl = baseUrl() + '/privacy';
+    const origin=baseUrl();
     const intro=typed?'Номер в тексте не подтверждает контакт.':'Академия открыта по приглашениям.';
     const steps=inviteDraft?'имя и фамилию':'имя, фамилию, магазин и номер заказа';
-    await send(telegramId, intro+' Нажмите «Поделиться номером телефона» под полем сообщения и подтвердите отправку своего контакта. Если кнопка скрыта, откройте клавиатуру бота рядом с полем ввода. Затем бот спросит '+steps+'. Обработка данных: '+privacyUrl,
+    await send(telegramId, intro+' Нажмите «Поделиться номером телефона» и подтвердите отправку своего контакта. Если открыта обычная клавиатура, нажмите значок из четырёх точек рядом с полем сообщения. Затем бот спросит '+steps+'. Обработка данных: '+origin+'/privacy',
       undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:false,is_persistent:true});
+    if(origin.startsWith('https:')){
+      try{
+        await send(telegramId,'Можно также подтвердить номер кнопкой прямо под этим сообщением.',undefined,
+          {inline_keyboard:[[{text:'Поделиться номером телефона',web_app:{url:origin+'/telegram/contact'}}]]});
+      }catch{
+        // The native contact keyboard was already sent.
+        console.warn('JUICY Telegram inline contact button could not be sent');
+      }
+    }
   };
   const askName=()=>send(telegramId,'Введите ваше имя и фамилию одним сообщением.',undefined,{remove_keyboard:true});
   const askSource=()=>send(telegramId,'Где оформлен заказ? Выберите магазин.',undefined,
     {keyboard:[Object.values(orderSourceLabels).map(text=>({text}))],resize_keyboard:true,one_time_keyboard:true});
-  const askOrder=()=>send(telegramId,'Введите номер заказа из подтверждения покупки.',undefined,{remove_keyboard:true});
+  const askOrder=()=>send(telegramId,'Введите номер заказа из подтверждения покупки. Только буквы и цифры, без пробелов и знаков. Например: AB12345.',undefined,{remove_keyboard:true});
   const submit=async(name:string,number:string,source:keyof typeof orderSourceLabels|null=null,order:string|null=null)=>{
     if(inviteDraft){
-      const {rows}=await db.query(`UPDATE registration_invites SET used_at=now()
-        WHERE id=$1 AND ${activeInvite} RETURNING id`,[inviteDraft.invite_id]);
+      const sql=inviteDraft.mode==='multi'
+        ?`SELECT id FROM registration_invites WHERE id=$1 AND ${activeInvite} FOR SHARE`
+        :`UPDATE registration_invites SET used_at=now() WHERE id=$1 AND ${activeInvite} RETURNING id`;
+      const {rows}=await db.query(sql,[inviteDraft.invite_id]);
       if(!rows.length){
         await clearInvite();
         await invalidInvite();
@@ -151,7 +165,10 @@ export async function handleTelegramAccess(
       }
       await audit(db,null,'registration.link.use',inviteDraft.invite_id);
     }
-    await db.query('INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number,invite_id) VALUES($1,$2,$3,$4,$5,$6)',
+    await db.query(`INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number,invite_id)
+      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (telegram_id) DO UPDATE SET display_name=EXCLUDED.display_name,
+      phone=EXCLUDED.phone,order_source=EXCLUDED.order_source,order_number=EXCLUDED.order_number,invite_id=EXCLUDED.invite_id
+      WHERE registration_requests.status='requested' AND registration_requests.invite_id IS NULL AND registration_requests.order_source IS NULL`,
       [telegramId,name,number,source,order,inviteDraft?.invite_id??null]);
     await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
     if(inviteDraft)await clearInvite();
@@ -231,12 +248,13 @@ export async function decideRegistration(db: Db, actor: Principal, id: string, d
   const identity=(await db.query<{telegram_id:string}>('SELECT telegram_id FROM registration_requests WHERE id=$1',[id])).rows[0];
   check(identity,404,'REGISTRATION_NOT_FOUND');
   await lockTelegramRegistration(db,String(identity.telegram_id));
-  const { rows } = await db.query<{ telegram_id: string; display_name: string; status: string }>(
-    'SELECT telegram_id,display_name,status FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
+  const { rows } = await db.query<{telegram_id:string;display_name:string;status:string;invite_id:string|null;order_source:string|null}>(
+    'SELECT telegram_id,display_name,status,invite_id,order_source FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
   const request = rows[0];
   check(request, 404, 'REGISTRATION_NOT_FOUND');
   check(request.status === 'requested', 409, 'REGISTRATION_REVIEWED');
   if (action === 'invite') {
+    check(request.invite_id||request.order_source,409,'REGISTRATION_ORDER_REQUIRED');
     const account = (await db.query<{ id: string }>("INSERT INTO users(telegram_id,display_name) VALUES($1,$2) ON CONFLICT (telegram_id) DO UPDATE SET telegram_id=EXCLUDED.telegram_id WHERE users.status='pending' AND users.role='student' RETURNING id",
       [request.telegram_id, request.display_name])).rows[0];
     check(account, 409, 'ACCOUNT_EXISTS');

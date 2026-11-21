@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { learningTracks,trackLabels,type LearningTrack,type grants } from '@/lib/catalog';
+import { inviteModeLabels,learningTracks,trackLabels,type InviteMode,type LearningTrack,type grants } from '@/lib/catalog';
 import { apiCall } from './actions';
 
 type Permission=typeof grants[number];
@@ -78,25 +78,30 @@ export function StudentTrackControls({id,current,onlyAmbassador=false}:{id:strin
 }
 
 export function CreateInvitation() {
+  const [mode,setMode]=useState<InviteMode>('single');
   const [url,setUrl]=useState('');
   const [status,setStatus]=useState('');
   const [pending,setPending]=useState(false);
   const router=useRouter();
   return <section className="studio-record form-stack">
     <h2>Ссылка-приглашение без заказа</h2>
-    <p>Одноразовая ссылка действует 7 дней. Заявка появится в Studio после того, как получатель поделится своим контактом и введёт имя и фамилию.</p>
+    <label>Тип ссылки<select value={mode} disabled={pending} onChange={event=>setMode(event.target.value==='multi'?'multi':'single')}>
+      {Object.entries(inviteModeLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
+    </select></label>
+    <p>{mode==='single'?'Один человек может подать заявку в течение 3 дней.':'Несколько человек могут подать заявки по этой ссылке в течение 3 дней.'} Для заявки нужны контакт Telegram, имя и фамилия.</p>
     <button type="button" className="btn btn-dark" disabled={pending} onClick={async()=>{
       setPending(true);
       setStatus('');
+      setUrl('');
       try{
-        const result=await apiCall('/api/studio/invitations',{});
+        const result=await apiCall('/api/studio/invitations',{mode});
         setUrl(result.url);
         router.refresh();
       }catch(error){setStatus((error as Error).message);}
       finally{setPending(false);}
     }}>{pending?'Создаём…':'Создать приглашение'}</button>
     {url?<div className="form-stack">
-      <label>Ссылка для получателя<input value={url} readOnly onFocus={event=>event.target.select()}/></label>
+      <label>Ссылка для отправки<input value={url} readOnly onFocus={event=>event.target.select()}/></label>
       <button type="button" className="btn btn-outline" onClick={async()=>{
         try{await navigator.clipboard.writeText(url);setStatus('Ссылка скопирована.');}
         catch{setStatus('Выделите и скопируйте ссылку из поля.');}

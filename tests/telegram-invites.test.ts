@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import { runInNewContext } from 'node:vm';
 import { NextRequest } from 'next/server';
+import { GET as contactPage } from '../src/app/telegram/contact/route';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
 import { hash, principal, type Tokens } from '../src/lib/security';
@@ -24,7 +27,9 @@ test('a verified bot request stays outside users until Studio invites it, then o
   configureBot();
   const f = await fixture();
   const originalFetch = globalThis.fetch;
-  const messages: { chat_id: string; text: string; reply_markup?: { keyboard: { request_contact: boolean }[][] } }[] = [];
+  const messages: {chat_id:string;text:string;reply_markup?:{
+    keyboard?:{request_contact:boolean}[][];inline_keyboard?:{web_app:{url:string}}[][];
+  }}[] = [];
   globalThis.fetch = async (url, init) => {
     assert.equal(new URL(String(url)).hostname, 'api.telegram.org');
     assert.equal(init?.method, 'POST');
@@ -59,6 +64,12 @@ test('a verified bot request stays outside users until Studio invites it, then o
     const tech = await f.account('techadmin');
     const reader = await f.account('admin', 'approved', [], ['students.read']);
     const outsider = await f.account();
+    await assert.rejects(f.engine.query(
+      "INSERT INTO registration_requests(telegram_id,display_name,phone) VALUES($1,'Synthetic Applicant','12345678')",[telegramId]),
+      /registration_request_requires_order_or_invite/);
+    await assert.rejects(f.engine.query(
+      "INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,'Synthetic Applicant','12345678','kaspi','AB-123')",[telegramId]),
+      /registration_order_alphanumeric/);
     assert.equal((await call('auth/telegram')).status, 410);
     assert.equal((await call('telegram/webhook', update(1, { contact }))).status, 401);
     assert.equal((await call('telegram/webhook', update(2, { contact }, { id: -123, type: 'group' }), { secret })).status, 200);
@@ -66,11 +77,12 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length, 0);
 
     await sendUpdate(4, { text: '/start request' });
-    assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact, true);
-    assert.match(messages.at(-1)!.text,/Нажмите «Поделиться номером телефона»/);
+    assert.equal(messages.at(-2)?.reply_markup?.keyboard?.[0][0].request_contact,true);
+    assert.match(messages.at(-2)!.text,/Нажмите «Поделиться номером телефона»/);
+    assert.equal(messages.at(-1)?.reply_markup?.inline_keyboard?.[0][0].web_app.url,origin+'/telegram/contact');
     assert.equal((await sendUpdate(31,{text:'+12025550101'})).status,200);
-    assert.match(messages.at(-1)!.text,/Номер в тексте не подтверждает контакт/);
-    assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact,true);
+    assert.match(messages.at(-2)!.text,/Номер в тексте не подтверждает контакт/);
+    assert.equal(messages.at(-2)?.reply_markup?.keyboard?.[0][0].request_contact,true);
     assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
     assert.equal((await sendUpdate(5, { contact })).status, 200);
     assert.deepEqual(await (await sendUpdate(5, { contact })).json(), { duplicate: true });
@@ -81,13 +93,18 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await sendUpdate(23,{text:'Сайт Braun'})).status,200);
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
     assert.match(messages.at(-1)!.text,/Введите номер заказа/);
-    assert.equal((await sendUpdate(24,{text:'BR-DEMO-12345'})).status,200);
+    for(const [id,text] of [[25,''],[26,'BR-12345'],[27,'BR 12345'],[28,'#12345'],[29,'XYZ_12345']] as const){
+      assert.equal((await sendUpdate(id,{text})).status,200);
+      assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
+    }
+    assert.match(messages.at(-1)!.text,/Только буквы и цифры/);
+    assert.equal((await sendUpdate(24,{text:'БР12345'})).status,200);
     assert.equal((await f.engine.query('SELECT telegram_id FROM telegram_registration_drafts')).rows.length,0);
     const requests = await f.run(db => pendingRegistrationRequests(db, reader.p));
     assert.equal(requests.length, 1);
     assert.equal(requests[0].display_name, 'Синтетический Ученик');
     assert.equal(requests[0].order_source,'braun');
-    assert.equal(requests[0].order_number,'BR-DEMO-12345');
+    assert.equal(requests[0].order_number,'БР12345');
     assert.equal(requests[0].phone, contact.phone_number);
     await assert.rejects(f.run(db => pendingRegistrationRequests(db, outsider.p)), /PERMISSION_DENIED/);
     assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id=$1', [telegramId])).rows.length, 0);
@@ -147,8 +164,8 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await call(account,{action:'delete'},{tokens:newStaff})).status,200);
     assert.equal((await f.engine.query('SELECT id FROM registration_requests WHERE telegram_id=$1',[telegramId])).rows.length,0);
     await sendUpdate(34,{text:'/start request'});
-    assert.equal(messages.at(-1)?.reply_markup?.keyboard[0][0].request_contact,true);
-    for(const [id,data] of [[35,{contact}],[36,{text:'Синтетический Ученик'}],[37,{text:'Kaspi'}],[38,{text:'TEST-123'}]] as const)
+    assert.equal(messages.at(-2)?.reply_markup?.keyboard?.[0][0].request_contact,true);
+    for(const [id,data] of [[35,{contact}],[36,{text:'Синтетический Ученик'}],[37,{text:'Kaspi'}],[38,{text:'12345678'}]] as const)
       assert.equal((await sendUpdate(id,data)).status,200);
     const again=await f.run(db=>pendingRegistrationRequests(db,tech.p));
     assert.equal(again.length,1);
@@ -162,7 +179,7 @@ test('a verified bot request stays outside users until Studio invites it, then o
   }
 });
 
-test('Studio links skip order details once, preserve approval, and can be revoked or expire', async () => {
+test('single-use and reusable Studio links expire in three days and require approval', async () => {
   configureBot();
   const f=await fixture();
   const replies:string[]=[];
@@ -172,8 +189,9 @@ test('Studio links skip order details once, preserve approval, and can be revoke
     update_id:++updateId,message:{from:{id},chat:{type:'private',id},text,contact:details},
   },send));
   const names=cookieNames();
-  const call=(path:string,tokens:Tokens,method='POST')=>handleApi(new NextRequest(origin+'/api/'+path,{
-    method,headers:{Origin:origin,Cookie:`${names.session}=${tokens.session}; ${names.device}=${tokens.device}`},
+  const call=(path:string,tokens:Tokens,method='POST',data:unknown={})=>handleApi(new NextRequest(origin+'/api/'+path,{
+    method,headers:{Origin:origin,Cookie:`${names.session}=${tokens.session}; ${names.device}=${tokens.device}`,'Content-Type':'application/json'},
+    body:method==='POST'?JSON.stringify(data):undefined,
   }),path.split('/'),f.run);
 
   try{
@@ -181,8 +199,8 @@ test('Studio links skip order details once, preserve approval, and can be revoke
     const reader=await f.account('admin','approved',[],['students.read']);
     const approver=await f.account('admin','approved',[],['students.read','students.approve']);
     const student=await f.account();
-    const create=async(tokens=tech.tokens)=>{
-      const response=await call('studio/invitations',tokens);
+    const create=async(tokens=tech.tokens,mode?:'single'|'multi')=>{
+      const response=await call('studio/invitations',tokens,'POST',{mode});
       assert.equal(response.status,200);
       assert.match(response.headers.get('cache-control')??'',/no-store/);
       const {id,url}=await response.json() as {id:string;url:string};
@@ -190,11 +208,15 @@ test('Studio links skip order details once, preserve approval, and can be revoke
       assert.equal(link.origin,'https://t.me');
       assert.equal(link.pathname,'/SyntheticJuicyBot');
       const payload=link.searchParams.get('start')!;
-      assert.match(payload,/^invite_[A-Za-z0-9_-]{32}$/);
-      return {id,start:'/start '+payload,token:payload.slice(7)};
+      assert.match(payload,mode==='multi'?/^invite_multi_[A-Za-z0-9_-]{32}$/:/^invite_[A-Za-z0-9_-]{32}$/);
+      const {rows:[row]}=await f.engine.query<{mode:string;days:number}>(
+        "SELECT mode,extract(epoch FROM (expires_at-created_at))::integer/86400 AS days FROM registration_invites WHERE id=$1",[id]);
+      assert.deepEqual(row,{mode:mode??'single',days:3});
+      return {id,start:'/start '+payload,token:payload.slice(-32)};
     };
     assert.equal((await call('studio/invitations',reader.tokens)).status,403);
     assert.equal((await call('studio/invitations',student.tokens)).status,403);
+    assert.equal((await call('studio/invitations',tech.tokens,'POST',{mode:'other'})).status,400);
     const invite=await create(approver.tokens);
     const stored=(await f.engine.query<{token_hash:string}>('SELECT token_hash FROM registration_invites')).rows[0];
     assert.equal(stored.token_hash,hash(invite.token));
@@ -203,7 +225,8 @@ test('Studio links skip order details once, preserve approval, and can be revoke
 
     const first=telegramId+42,second=telegramId+43;
     await run(first,invite.start);
-    assert.match(replies.at(-1)!,/Затем бот спросит имя и фамилию/);
+    assert.match(replies.at(-2)!,/Затем бот спросит имя и фамилию/);
+    assert.match(replies.at(-1)!,/кнопкой прямо под этим сообщением/);
     await run(first,undefined,contact);
     await run(first,'Synthetic Learner');
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
@@ -250,11 +273,63 @@ test('Studio links skip order details once, preserve approval, and can be revoke
     await run(first,'/login');
     assert.match(replies.at(-1)!,/Код входа в JUICY:/);
 
+    const multi=await create(approver.tokens,'multi');
+    const third=telegramId+44,fourth=telegramId+45,fifth=telegramId+46;
+    for(const id of [third,fourth]){
+      await run(id,multi.start);
+      await run(id,undefined,{...contact,user_id:id});
+      await run(id,'Synthetic Learner');
+      assert.match(replies.at(-1)!,/Заявка отправлена/);
+    }
+    await run(third,multi.start);
+    assert.match(replies.at(-1)!,/Заявка уже отправлена/);
+    const multiRequests=(await f.run(db=>pendingRegistrationRequests(db,tech.p))).filter(item=>item.invite_id===multi.id);
+    assert.equal(multiRequests.length,2);
+    assert.ok(multiRequests.every(item=>item.order_source===null&&item.order_number===null));
+    assert.equal((await f.run(db=>registrationInvites(db,tech.p))).find(row=>row.id===multi.id)?.status,'active');
+    await run(fifth,multi.start);
+    await run(fifth,undefined,{...contact,user_id:fifth});
+    assert.equal((await call('studio/invitations/'+multi.id,tech.tokens,'DELETE')).status,200);
+    await run(fifth,'Synthetic Fifth');
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+    const expiredMulti=await create(tech.tokens,'multi');
+    await f.engine.query("UPDATE registration_invites SET expires_at=now()-interval '1 minute' WHERE id=$1",[expiredMulti.id]);
+    await run(fifth,expiredMulti.start);
+    assert.match(replies.at(-1)!,/Ссылка недействительна/);
+
     const list=await f.run(db=>registrationInvites(db,tech.p));
     assert.deepEqual(Object.fromEntries(list.map(row=>[row.id,row.status])),
-      {[expired.id]:'expired',[revoked.id]:'revoked',[invite.id]:'used',[switchable.id]:'active'});
+      {[expired.id]:'expired',[revoked.id]:'revoked',[invite.id]:'used',[switchable.id]:'active',[multi.id]:'revoked',[expiredMulti.id]:'expired'});
     assert.ok(list.every(row=>!('token_hash' in row)));
   } finally {
     await f.close();
   }
+});
+
+test('the Telegram contact button requests native consent and can retry if cancelled', async () => {
+  const response=contactPage();
+  const html=await response.text();
+  const script=/<script>([\s\S]+?)<\/script>/.exec(html)?.[1];
+  assert.ok(script);
+  const hash=createHash('sha256').update(script).digest('base64');
+  assert.ok(response.headers.get('Content-Security-Policy')?.includes(`'sha256-${hash}'`));
+  let click:()=>void=()=>assert.fail('No click listener');
+  let granted=false,closed=false;
+  const button={disabled:true,addEventListener:(_event:string,callback:()=>void)=>{click=callback;}};
+  const status={textContent:''};
+  const document={querySelector:(selector:string)=>selector==='button'?button:status};
+  runInNewContext(script,{document,window:{}});
+  assert.equal(button.disabled,true);
+  const app={platform:'ios',isVersionAtLeast:(version:string)=>version==='6.9',ready:()=>{},
+    requestContact:(done:(shared:boolean)=>void)=>done(granted),close:()=>{closed=true;}};
+  runInNewContext(script,{document,window:{Telegram:{WebApp:app}}});
+  assert.equal(button.disabled,false);
+  click();
+  assert.equal(button.disabled,false);
+  assert.equal(closed,false);
+  assert.match(status.textContent,/Попробуйте ещё раз/);
+  granted=true;
+  click();
+  assert.equal(button.disabled,true);
+  assert.equal(closed,true);
 });

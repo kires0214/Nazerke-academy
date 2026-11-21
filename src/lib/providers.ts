@@ -2,6 +2,8 @@ import { check } from './errors';
 
 type Fetcher = typeof fetch;
 type ReplyMarkup = { remove_keyboard: true } | {
+  inline_keyboard: {text:string;web_app:{url:string}}[][];
+} | {
   keyboard: { text: string; request_contact?: true }[][];
   resize_keyboard: boolean;
   one_time_keyboard: boolean;

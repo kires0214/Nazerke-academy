@@ -18,6 +18,8 @@ export function groupFor(kind:string,data:CatalogPlacement):CatalogGroup {
 }
 export const sectionHref=(track:LearningTrack)=>'/academy/'+(track==='ambassador'?'ambassadors':track);
 export const orderSourceLabels={kaspi:'Kaspi',kenwood:'Сайт Kenwood',braun:'Сайт Braun'} as const;
+export const inviteModeLabels={single:'Одноразовая',multi:'Многоразовая'} as const;
+export type InviteMode=keyof typeof inviteModeLabels;
 export function contentTracks(audience:string,data:CatalogPlacement&{tracks?:LearningTrack[]}) {
   return data.tracks??[sectionFor(audience,data)];
 }

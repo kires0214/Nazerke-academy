@@ -220,7 +220,7 @@ test('invitation role and grants are assigned atomically and only by qualified s
     const coordinator=await f.account('admin','approved',[],['students.approve','students.tracks']);
     const request=async (telegramId:number)=>{
       const {rows:[row]}=await f.engine.query<{id:string}>(
-        "INSERT INTO registration_requests(telegram_id,display_name,phone) VALUES($1,'Synthetic invite','7000000') RETURNING id",[telegramId]);
+        "INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,'Synthetic applicant','7000000','kaspi','DEV123') RETURNING id",[telegramId]);
       return 'studio/registration/'+row.id;
     };
     const ambassador=await request(12000001),admin=await request(12000002);
