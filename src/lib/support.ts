@@ -1,8 +1,9 @@
 import { z } from 'zod';
 import type { Db } from './db';
 import { check } from './errors';
-import { hasGrant, requireGrant, rateLimit, type Principal } from './security';
+import { audit, hasGrant, requireGrant, rateLimit, type Principal } from './security';
 import { telegramSend } from './providers';
+import { handleTelegramAccess, telegramContact } from './telegram-access';
 
 export async function supportMessage(db:Db,user:Principal,body:string,threadId?:string) {
   await rateLimit(db,'support:'+user.id,12);
@@ -16,6 +17,7 @@ export async function supportMessage(db:Db,user:Principal,body:string,threadId?:
   }
   await db.query('INSERT INTO support_messages(thread_id,actor_id,sender,body) VALUES($1,$2,$3,$4)',[thread.id,user.id,threadId?'human':'student',body]);
   await db.query("UPDATE support_threads SET updated_at=now(),status='open' WHERE id=$1",[thread.id]);
+  await audit(db,user.id,threadId?'support.reply':'support.message',thread.id);
   if(threadId) {
     await db.query('INSERT INTO notification_outbox(chat_id,body) SELECT telegram_id,$2 FROM users WHERE id=$1 AND telegram_opt_in AND status=\'approved\'',[thread.user_id,'Ответ сотрудника JUICY: '+body]);
   } else if(process.env.TELEGRAM_SUPPORT_CHAT_ID) {
@@ -30,17 +32,20 @@ export async function supportHistory(db:Db,user:Principal,staff=false) {
 }
 const updateSchema=z.object({update_id:z.number().int().nonnegative(),message:z.object({
   from:z.object({id:z.number().int().positive()}).passthrough(),chat:z.object({id:z.number().int(),type:z.string()}).passthrough(),
-  text:z.string().max(4000).optional(),
+  text:z.string().max(4096).optional(),contact:telegramContact.optional(),
 }).passthrough().optional()}).passthrough();
-export async function processTelegramUpdate(db:Db,raw:unknown) {
+export async function processTelegramUpdate(db:Db,raw:unknown,send=telegramSend) {
   const update=updateSchema.parse(raw);
   const receipt=await db.query('INSERT INTO telegram_updates(update_id) VALUES($1) ON CONFLICT DO NOTHING RETURNING update_id',[update.update_id]);
   if(!receipt.rows.length) return {duplicate:true};
   const message=update.message;
-  if(!message?.text) return {ok:true};
+  if(!message) return {ok:true};
+  const isPrivate=message.chat.type==='private'&&message.chat.id===message.from.id;
+  if(isPrivate&&await handleTelegramAccess(db,String(message.from.id),message.text,message.contact,send)) return {ok:true};
+  if(!message.text) return {ok:true};
   const user=(await db.query<Principal & {telegram_id:string}>('SELECT id,display_name,role,status,telegram_id FROM users WHERE telegram_id=$1 FOR SHARE',[message.from.id])).rows[0];
   if(!user) return {ok:true};
-  if(message.chat.type==='private' && message.chat.id===message.from.id) {
+  if(isPrivate) {
     if(message.text==='/start') {
       await db.query('UPDATE users SET telegram_opt_in=true WHERE id=$1',[user.id]);
       await db.query('INSERT INTO notification_outbox(chat_id,body) VALUES($1,$2)',[message.from.id,'JUICY: уведомления включены. Ответы поддержки отправляет сотрудник. /stop — отключить.']);

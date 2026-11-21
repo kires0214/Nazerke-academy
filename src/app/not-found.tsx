@@ -1,2 +1,8 @@
 import Link from 'next/link';
-export default function NotFound() {return <div className="wrap section"><h1>Страница не найдена</h1><p>Возможно, материал ещё не опубликован или недоступен вашему аккаунту.</p><Link className="btn btn-dark" href="/">На главную</Link></div>;}
+import { siteCopy } from '@/lib/site-locale';
+export default async function NotFound() {
+  const t=await siteCopy();
+  return <div className="wrap section"><h1>{t('Страница не найдена','Page not found')}</h1>
+    <p>{t('Возможно, материал ещё не опубликован или недоступен вашему аккаунту.','This material may be unpublished or unavailable to your account.')}</p>
+    <Link className="btn btn-dark" href="/">{t('На главную','Go home')}</Link></div>;
+}

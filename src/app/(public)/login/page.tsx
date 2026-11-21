@@ -1,13 +1,28 @@
 import Link from 'next/link';
-import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { PageHead } from '@/components/cards';
-import { TelegramWidget } from '@/components/actions';
-import { baseUrl,cookieNames } from '@/lib/http';
-export default async function Page({searchParams}:{searchParams:Promise<{state?:string}>}) {
-  const {state}=await searchParams,jar=await cookies();
-  const configured=!!(process.env.TELEGRAM_BOT_TOKEN&&process.env.TELEGRAM_LOGIN_BOT_NAME&&process.env.DATABASE_URL&&process.env.APP_BASE_URL);
-  const validState=state&&/^[\w-]{43}$/.test(state)&&jar.get(cookieNames().state)?.value===state;
-  return <><PageHead title="Добро пожаловать в JUICY" description="Войдите через Telegram. Новый аккаунт ожидает ручного подтверждения команды."/><section className="info-box login-box">
-    {configured?(validState?<TelegramWidget bot={process.env.TELEGRAM_LOGIN_BOT_NAME!} authUrl={baseUrl()+'/api/auth/telegram?state='+state}/>:<Link className="btn btn-dark" href="/api/auth/start">Продолжить с Telegram</Link>):<p role="status">Вход скоро откроется. Подключение сервиса ещё не завершено.</p>}
-    <p>Вход привязывает аккаунт к одному браузеру. Для смены браузера обратитесь в поддержку.</p><p>Продолжая, вы принимаете <Link href="/terms">правила доступа</Link> и знакомитесь с <Link href="/privacy">обработкой данных</Link>.</p></section></>;
+import { TelegramCodeForm } from '@/components/actions';
+import { configuredTelegramBot } from '@/lib/telegram-access';
+import { publicPageUser } from '@/lib/pages';
+import { siteCopy } from '@/lib/site-locale';
+
+export const dynamic='force-dynamic';
+
+export default async function Page() {
+  const [user,t]=await Promise.all([publicPageUser(),siteCopy()]);
+  if(user)redirect(user.status==='approved'?'/academy':'/access');
+  const bot=configuredTelegramBot();
+  return <><PageHead title={t('Добро пожаловать в JUICY','Welcome to JUICY')} description={t('Доступ в Академию открывается по приглашению.','Access to the Academy is by invitation.')}/>
+    {bot?<section className="info-box login-box">
+      <h2>{t('Войти в Академию','Sign in to the Academy')}</h2>
+      <p>{t('Получите код у бота и введите его здесь.','Get a code from the bot and enter it here.')}</p>
+      <a className="btn btn-outline" href={`https://t.me/${bot}?start=login`} target="_blank" rel="noopener noreferrer">{t('Получить код в Telegram','Get a code in Telegram')}</a>
+      <TelegramCodeForm/>
+      <p>{t('Аккаунт привязывается к одному браузеру. Для смены браузера обратитесь в поддержку.','Your account is registered to one browser. Contact support to change it.')}</p>
+      <h2>{t('Запросить приглашение','Request an invitation')}</h2>
+      <p>{t('Поделитесь своим контактом Telegram и укажите фамилию, имя, магазин и номер заказа. В номере заказа допустимы только буквы и цифры. Команда JUICY ответит в Telegram.','Share your Telegram contact and enter your last name, first name, store and order number. Use only letters and digits in the order number. JUICY will reply on Telegram.')}</p>
+      <a className="btn btn-outline" href={`https://t.me/${bot}?start=request`} target="_blank" rel="noopener noreferrer">{t('Запросить приглашение в Telegram','Request an invitation in Telegram')}</a>
+    </section>:<p className="info-box" role="status">{t('Вход и заявки будут доступны после подключения бота.','Sign-in and invitations will be available once the bot is connected.')}</p>}
+    <p><Link href="/terms">{t('Правила доступа','Access rules')}</Link> {t('и','and')} <Link href="/privacy">{t('обработка данных','privacy')}</Link>.</p>
+  </>;
 }

@@ -5,9 +5,10 @@ import { NextRequest } from 'next/server';
 import { fixture } from './helpers';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
-import { contentSchema,saveContent } from '../src/lib/content';
+import { contentSchema,getContent,saveContent } from '../src/lib/content';
+import { eventsWithSeats } from '../src/lib/events';
 import { deliverClaimed,dispatchOutbox,processTelegramUpdate } from '../src/lib/support';
-import { privatePlayback,telegramSend } from '../src/lib/providers';
+import { telegramSend } from '../src/lib/providers';
 import { downloadSignature,type Tokens } from '../src/lib/security';
 
 process.env.APP_BASE_URL='https://dev.juicy.invalid';process.env.APP_ENV='DEV';
@@ -41,6 +42,26 @@ test('direct CMS endpoint enforces granular grants and forbids spoofed role fiel
     assert.equal((await handleApi(request('studio/accounts/'+a.id,'POST',{action:'staff',role:'admin',grants:['content.publish']},a.tokens),['studio','accounts',a.id],f.run)).status,403);
   }finally{await f.close();}
 });
+test('Tech Admin can create a draft and publish or withdraw it using the Studio HTTP routes',async()=>{
+  const f=await fixture();
+  try {
+    const tech=await f.account('techadmin'),student=await f.account();
+    const list=async()=>await (await handleApi(request('content','GET',undefined,student.tokens),['content'],f.run)).json() as {id:string}[];
+    const recipe={kind:'recipe',slug:'synthetic-publishing',title:'Synthetic draft',status:'draft'};
+    const initial=await handleApi(request('studio/content','POST',recipe,tech.tokens),['studio','content'],f.run);
+    assert.equal(initial.status,200);
+    const {id}=await initial.json();
+    assert.ok(!(await list()).some(node=>node.id===id));
+    const full={...recipe,title:'Synthetic recipe',data:{duration:15,portions:2,ingredients:['Synthetic ingredient'],steps:['Synthetic step']}};
+    const path=['studio','content',id];
+    const publish=await handleApi(request(path.join('/'),'PATCH',{...full,status:'published',version:1},tech.tokens),path,f.run);
+    assert.equal(publish.status,200);
+    assert.ok((await list()).some(node=>node.id===id));
+    const hide=await handleApi(request(path.join('/'),'PATCH',{...full,status:'hidden',version:2},tech.tokens),path,f.run);
+    assert.equal(hide.status,200);
+    assert.ok(!(await list()).some(node=>node.id===id));
+  }finally{await f.close();}
+});
 test('Telegram webhook validates secret, deduplicates updates and records support roundtrip',async()=>{
   const f=await fixture();process.env.TELEGRAM_WEBHOOK_SECRET='synthetic_DEV_webhook_secret_32_characters';process.env.TELEGRAM_SUPPORT_CHAT_ID='-900000000000001';
   try {const a=await f.account(),staff=await f.account('admin','approved',[],['support.read','support.respond']);
@@ -72,18 +93,6 @@ test('outbox retries provider failures and preserves sent state without duplicat
     assert.equal((await f.run(dispatchOutbox)).length,0);
   }finally{await f.close();}
 });
-test('Stream adapter requests private 120-second tokens; rejects public, unready and unsafe-expiry provider results',async()=>{
-  const saved={account:process.env.CLOUDFLARE_ACCOUNT_ID,secret:process.env.CLOUDFLARE_STREAM_API_TOKEN};process.env.CLOUDFLARE_ACCOUNT_ID='a'.repeat(32);process.env.CLOUDFLARE_STREAM_API_TOKEN='synthetic_DEV_only';
-  const id='b'.repeat(32);let mode='ok',requests=0;
-  const mock:typeof fetch=async(url,init)=>{requests++;const isToken=String(url).endsWith('/token');let result;
-    if(isToken) {const payload=JSON.parse(String(init?.body));assert.equal(payload.downloadable,false);assert.ok(payload.exp<=Date.now()/1000+120);result={token:`e30.${Buffer.from(JSON.stringify({sub:id,exp:mode==='long'?payload.exp+3600:payload.exp})).toString('base64url')}.synthetic_signature`};}
-    else result={requireSignedURLs:mode!=='public',readyToStream:mode!=='processing'};
-    return Response.json({success:true,result});};
-  try {const result=await privatePlayback(id,mock);assert.ok(result.url.startsWith('https://iframe.cloudflarestream.com/'));assert.equal(requests,2);
-    for(const next of ['public','processing','long']) {mode=next;await assert.rejects(privatePlayback(id,mock),/PRIVATE_VIDEO_NOT_READY|UNSAFE_STREAM_EXPIRY/);}
-    await assert.rejects(privatePlayback('invalid',mock),/INVALID_STREAM_ID/);
-  }finally{if(saved.account)process.env.CLOUDFLARE_ACCOUNT_ID=saved.account;else delete process.env.CLOUDFLARE_ACCOUNT_ID;if(saved.secret)process.env.CLOUDFLARE_STREAM_API_TOKEN=saved.secret;else delete process.env.CLOUDFLARE_STREAM_API_TOKEN;}
-});
 test('private files and video endpoints deny pending users, unentitled staff, hidden content and missing authentication',async()=>{
   const f=await fixture();process.env.TELEGRAM_BOT_TOKEN='999999999:synthetic_DEV_signing_only';try {const student=await f.account(),pending=await f.account('student','pending',[]),staff=await f.account('admin','approved',[],['content.read']);
     const recipe=(await f.engine.query<{id:string}>("SELECT id FROM content WHERE slug='pasta'")).rows[0];
@@ -101,10 +110,21 @@ test('private files and video endpoints deny pending users, unentitled staff, hi
 });
 test('event capacity transaction produces registration and waitlist, and idempotent repeat',async()=>{
   const f=await fixture();try {const tech=await f.account('techadmin'),a=await f.account(),b=await f.account();
-    const id=await f.run(db=>saveContent(db,tech.p,{kind:'event',slug:'synthetic-event',title:'Synthetic DEV event',status:'published',data:{city:'Synthetic city',startsAt:new Date(Date.now()+86400000).toISOString(),capacity:1}}));
+    const event={kind:'event',slug:'synthetic-event',title:'Synthetic DEV event',status:'published',
+      data:{city:'Synthetic city',startsAt:new Date(Date.now()+86400000).toISOString(),capacity:1}};
+    await assert.rejects(f.run(db=>saveContent(db,tech.p,event)),/EVENT_ADDRESS_REQUIRED/);
+    const id=await f.run(db=>saveContent(db,tech.p,{...event,data:{...event.data,venueAddress:'Synthetic venue'}}));
+    const snapshot=()=>f.run(async db=>(await eventsWithSeats(db,[await getContent(db,id,a.p)]))[0]);
+    assert.equal((await snapshot()).remaining,1);
+    assert.equal((await snapshot()).node.data.venueAddress,'Synthetic venue');
     const path=['events',id,'register'];const responses=await Promise.all([a,b].map(user=>handleApi(request(path.join('/'),'POST',{},user.tokens),path,f.run)));
     const statuses=await Promise.all(responses.map(r=>r.json()));assert.deepEqual(statuses.map(x=>x.status).sort(),['registered','waitlist']);
     const repeat=await handleApi(request(path.join('/'),'POST',{},a.tokens),path,f.run);assert.equal((await repeat.json()).status,statuses[0].status);
+    assert.equal((await snapshot()).remaining,0);
+    const registered=[a,b][statuses.findIndex(item=>item.status==='registered')];
+    const canceled=await handleApi(request(path.join('/'),'POST',{cancel:true},registered.tokens),path,f.run);
+    assert.equal((await canceled.json()).status,'cancelled');
+    assert.equal((await snapshot()).remaining,1);
   }finally{await f.close();}
 });
 test('Telegram delivery adapter uses POST, no formatting injection, and reports provider failures safely',async()=>{

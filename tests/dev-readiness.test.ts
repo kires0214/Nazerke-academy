@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import {syntheticMux} from './mux-fixtures';
 import assert from 'node:assert/strict';
 import {checkDevReadiness,inspectDevEnvironment,type DevEnvironment} from '../scripts/dev-readiness';
 
@@ -7,12 +8,12 @@ function syntheticEnvironment():DevEnvironment {
   return {APP_ENV:'DEV',APP_BASE_URL:'https://dev.juicy.invalid',DATABASE_URL:database.toString(),
     TELEGRAM_BOT_TOKEN:'999999999:synthetic_dev_fixture_token_only',TELEGRAM_LOGIN_BOT_NAME:'JuicyDevFixtureBot',
     TELEGRAM_WEBHOOK_SECRET:'synthetic_webhook_fixture_'.padEnd(64,'x'),TELEGRAM_SUPPORT_CHAT_ID:'-900000000000001',
-    CLOUDFLARE_ACCOUNT_ID:'a'.repeat(32),CLOUDFLARE_STREAM_API_TOKEN:'synthetic_dev_stream_token_only'};
+    ...syntheticMux};
 }
 const fetcher:typeof fetch=async(url)=>{
   if(String(url).endsWith('/getMe'))return Response.json({ok:true,result:{is_bot:true,username:'JuicyDevFixtureBot'}});
   if(String(url).endsWith('/getWebhookInfo'))return Response.json({ok:true,result:{url:'https://dev.juicy.invalid/api/telegram/webhook'}});
-  return Response.json({success:true,result:[]});
+  return Response.json({data:[]});
 };
 test('missing DEV configuration is BLOCKED and contacts no providers',async()=>{
   let requests=0;const result=await checkDevReadiness({}, {live:true,fetcher:async()=>{requests++;throw new Error('must not run');},databaseProbe:async()=>{requests++;return {schemaReady:true};}});
@@ -26,21 +27,21 @@ test('PROD origins, Production targets, wrong Preview branch and public secret p
     assert.equal(result.status,'FAIL');assert.equal(requests,0);
   }
 });
-test('read-only DEV probes verify schema, expected bot, webhook target and Stream read access',async()=>{
+test('read-only DEV probes verify schema, expected bot, webhook target and Mux read access',async()=>{
   const env=syntheticEnvironment(),result=await checkDevReadiness(env,{live:true,fetcher,databaseProbe:async()=>({schemaReady:true})});
   assert.equal(result.status,'PASS');assert.ok(result.checks.some(c=>c.name==='NEON_SCHEMA'&&c.status==='PASS'));
-  const output=JSON.stringify(result);for(const key of ['DATABASE_URL','TELEGRAM_BOT_TOKEN','TELEGRAM_WEBHOOK_SECRET','CLOUDFLARE_STREAM_API_TOKEN'])assert.equal(output.includes(env[key]!),false);
+  const output=JSON.stringify(result);for(const key of ['DATABASE_URL','TELEGRAM_BOT_TOKEN','TELEGRAM_WEBHOOK_SECRET','MUX_TOKEN_SECRET'])assert.equal(output.includes(env[key]!),false);
 });
 test('provider errors never expose request URLs, credentials or provider response bodies',async()=>{
   const env=syntheticEnvironment();const result=await checkDevReadiness(env,{live:true,
     fetcher:async()=>{throw new Error('sensitive provider detail '+env.TELEGRAM_BOT_TOKEN);},
     databaseProbe:async()=>{throw new Error('sensitive database detail '+env.DATABASE_URL);}});
   assert.equal(result.status,'FAIL');assert.equal(JSON.stringify(result).includes('sensitive'),false);assert.equal(JSON.stringify(result).includes(env.TELEGRAM_BOT_TOKEN!),false);
-  const denied=await checkDevReadiness(env,{live:true,fetcher:async()=>Response.json({error:env.CLOUDFLARE_STREAM_API_TOKEN},{status:403}),databaseProbe:async()=>({schemaReady:true})});
-  assert.ok(denied.checks.some(c=>c.code==='PROVIDER_HTTP_403'));assert.equal(JSON.stringify(denied).includes(env.CLOUDFLARE_STREAM_API_TOKEN!),false);
+  const denied=await checkDevReadiness(env,{live:true,fetcher:async()=>Response.json({error:env.MUX_TOKEN_SECRET},{status:403}),databaseProbe:async()=>({schemaReady:true})});
+  assert.ok(denied.checks.some(c=>c.code==='PROVIDER_HTTP_403'));assert.equal(JSON.stringify(denied).includes(env.MUX_TOKEN_SECRET!),false);
 });
 test('an available Neon connection can be checked independently while missing providers stay BLOCKED',async()=>{
-  const env=syntheticEnvironment();delete env.TELEGRAM_BOT_TOKEN;delete env.CLOUDFLARE_STREAM_API_TOKEN;
+  const env=syntheticEnvironment();delete env.TELEGRAM_BOT_TOKEN;delete env.MUX_TOKEN_SECRET;
   let calls=0;const result=await checkDevReadiness(env,{live:true,fetcher:async()=>{throw new Error('must not run');},databaseProbe:async()=>{calls++;return {schemaReady:false};}});
   assert.equal(calls,1);assert.equal(result.status,'BLOCKED');assert.ok(result.checks.some(c=>c.name==='NEON_CONNECTION'&&c.status==='PASS'));assert.ok(result.checks.some(c=>c.name==='NEON_SCHEMA'&&c.code==='MIGRATIONS_REQUIRED'));
 });

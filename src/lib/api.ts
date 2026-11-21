@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse, after } from 'next/server';
 import { z } from 'zod';
 import { withDb, type Db } from './db';
+import { builtinArticleKeys } from './catalog';
 import { AppError, check } from './errors';
 import { apiResponse, baseUrl, cookieNames, cookiesForLogin, errorResponse, jsonBody, limitedBytes, requestTokens, sameOrigin } from './http';
-import { audit, createLogin, downloadSignature, verifyDownload, equal, hash, hasGrant, principal, rateLimit, requireGrant, resetDevice, token, verifyTelegram, type Principal } from './security';
-import { filterContent, getContent, listContent, saveContent, setProgress } from './content';
-import { updateAccount } from './accounts';
+import { audit, canLearn, downloadSignature, verifyDownload, equal, hash, isStudioRole, principal, rateLimit, requireGrant, resetDevice, type Principal } from './security';
+import { deleteContent, filterContent, getContent, listContent, saveContent, setProgress } from './content';
+import { studioAccounts, updateAccount } from './accounts';
+import { auditPage, canManageMedia, pageViewInput, readAuditFilter, recordPageView } from './activity';
+import { deleteMedia,mediaFileName,mediaFileNameHeader } from './media';
 import { deliverClaimed, dispatchOutbox, processTelegramUpdate, supportHistory, supportMessage } from './support';
-import { privatePlayback, streamApi } from './providers';
+import { verifyMuxWebhook } from './mux';
+import { authorizedMuxPlayback, receiveMuxEvent, refreshVideo, startVideo } from './mux-video';
+import { configuredTelegramBot, createRegistrationInvite, decideRegistration, loginCode, redeemTelegramCode, registrationInviteInput, requestDecision, revokeRegistrationInvite } from './telegram-access';
 
 type Runner = <T>(work:(db:Db)=>Promise<T>)=>Promise<T>;
 const uuid=(value:string)=>z.uuid().parse(value);
@@ -16,6 +21,13 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
   const key=path.join('/'), method=req.method, url=req.nextUrl;
   try {
     if(key==='health') return apiResponse({service:'JUICY',environment:process.env.APP_ENV??'unconfigured',databaseConfigured:!!process.env.DATABASE_URL});
+    if(key==='mux/webhook') {
+      check(method==='POST',405,'METHOD_NOT_ALLOWED');
+      check(req.headers.get('content-type')?.split(';')[0]==='application/json',415,'JSON_REQUIRED');
+      const raw=await limitedBytes(req,1024*1024);
+      const event=verifyMuxWebhook(raw,req.headers.get('mux-signature'));
+      return apiResponse(await run(db=>receiveMuxEvent(db,event)));
+    }
     if(key==='telegram/webhook') {
       check(method==='POST',405,'METHOD_NOT_ALLOWED');
       const secret=process.env.TELEGRAM_WEBHOOK_SECRET;
@@ -24,26 +36,16 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       const result=await run(async db=>processTelegramUpdate(db,await jsonBody(req)));
       return apiResponse(result);
     }
-    if(key==='auth/start' && method==='GET') {
-      check(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_LOGIN_BOT_NAME,503,'TELEGRAM_NOT_CONFIGURED');
-      const state=token();
-      const response=NextResponse.redirect(baseUrl()+'/login?state='+state);
-      response.headers.set('Cache-Control','no-store');
-      response.cookies.set(cookieNames().state,state,{httpOnly:true,secure:process.env.NODE_ENV==='production',sameSite:'lax',path:'/',maxAge:600});
-      return response;
-    }
-    if(key==='auth/telegram' && method==='GET') {
-      const state=url.searchParams.get('state')??'';
-      check(state.length===43 && equal(state,req.cookies.get(cookieNames().state)?.value??''),403,'LOGIN_STATE_INVALID');
-      // Commit request-rate counters even for forged callbacks.
+    if(key==='auth/start' && method==='GET') return NextResponse.redirect(baseUrl()+'/login');
+    if(key==='auth/telegram' && method==='GET') throw new AppError(410,'TELEGRAM_USE_BOT');
+    if(key==='auth/telegram' && method==='POST') {
+      sameOrigin(req);
+      check(configuredTelegramBot(),503,'TELEGRAM_NOT_CONFIGURED');
+      const {code}=z.object({code:loginCode}).strict().parse(await jsonBody(req));
       const ip=process.env.VERCEL ? req.headers.get('x-real-ip')??'unknown' : 'local';
       await run(db=>rateLimit(db,'login-ip:'+hash(ip),20,300));
-      const fields:Record<string,string>={};
-      for(const [k,v] of url.searchParams) { if(k==='state') continue; check(!(k in fields),400,'DUPLICATE_LOGIN_FIELD'); fields[k]=v; }
-      const identity=verifyTelegram(fields,process.env.TELEGRAM_BOT_TOKEN??'');
-      const result=await run(db=>createLogin(db,identity,requestTokens(req).device));
-      const response=NextResponse.redirect(baseUrl()+(result.status==='approved'?'/academy':'/access'));
-      response.headers.set('Cache-Control','private, no-store'); response.headers.set('Referrer-Policy','no-referrer');
+      const result=await run(db=>redeemTelegramCode(db,code,requestTokens(req).device));
+      const response=apiResponse({ok:true, destination:isStudioRole(result.role)?'/admin':'/academy'});
       cookiesForLogin(response,result.sessionToken,result.deviceToken); return response;
     }
     if(key!=='content')check(requestTokens(req).session&&requestTokens(req).device,401,'LOGIN_REQUIRED');
@@ -70,6 +72,11 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
     }
     const result=await run(async db=>{
       const p=await principal(db,requestTokens(req));
+      if(key==='activity'&&method==='POST') {
+        const {path}=pageViewInput.parse(await jsonBody(req));
+        await rateLimit(db,'activity:'+p.id,90);
+        await recordPageView(db,p,path);return {ok:true};
+      }
       await rateLimit(db,'api:'+p.id,120);
       if(key==='profile' && method==='GET') {
         const visible=await listContent(db,p), ids=visible.map(n=>n.id);
@@ -79,13 +86,23 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       }
       if(key==='progress' && method==='POST') {
         const data=z.object({lessonId:z.uuid(),position:z.number().int().min(0).max(86400),completed:z.boolean()}).strict().parse(await jsonBody(req));
-        await setProgress(db,p,data.lessonId,data.position,data.completed);return {ok:true};
+        await setProgress(db,p,data.lessonId,data.position,data.completed);
+        if(data.completed)await audit(db,p.id,'lesson.complete',data.lessonId);
+        return {ok:true};
       }
       if(key==='favorites' && method==='POST') {
         const data=z.object({contentId:z.uuid(),enabled:z.boolean()}).strict().parse(await jsonBody(req));
         await getContent(db,data.contentId,p);
         if(data.enabled) await db.query('INSERT INTO favorites(user_id,content_id) VALUES($1,$2) ON CONFLICT DO NOTHING',[p.id,data.contentId]);
         else await db.query('DELETE FROM favorites WHERE user_id=$1 AND content_id=$2',[p.id,data.contentId]);
+        await audit(db,p.id,data.enabled?'favorite.add':'favorite.remove',data.contentId);
+        return {ok:true};
+      }
+      if(key==='favorites/article'&&method==='POST'){
+        const {article,enabled}=z.object({article:z.enum(builtinArticleKeys),enabled:z.boolean()}).strict().parse(await jsonBody(req));
+        if(enabled)await db.query('INSERT INTO builtin_article_favorites(user_id,article_key) VALUES($1,$2) ON CONFLICT DO NOTHING',[p.id,article]);
+        else await db.query('DELETE FROM builtin_article_favorites WHERE user_id=$1 AND article_key=$2',[p.id,article]);
+        await audit(db,p.id,enabled?'favorite.add':'favorite.remove','article:'+article);
         return {ok:true};
       }
       if(key==='support' && method==='GET') return supportHistory(db,p);
@@ -101,47 +118,66 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
       if(key==='studio/content' && method==='GET') return listContent(db,p,true);
       if(key==='studio/content' && method==='POST') return {id:await saveContent(db,p,await jsonBody(req))};
       if(path[0]==='studio'&&path[1]==='content'&&path.length===3&&method==='PATCH') return {id:await saveContent(db,p,await jsonBody(req),uuid(path[2]))};
+      if(path[0]==='studio'&&path[1]==='content'&&path.length===3&&method==='DELETE') {
+        await deleteContent(db,p,uuid(path[2]));return {ok:true};
+      }
       if(key==='studio/accounts' && method==='GET') {
-        requireGrant(p,'students.read');
-        return (await db.query("SELECT id,display_name,status,role,created_at FROM users WHERE $1::boolean OR role IN ('student','ambassador') ORDER BY created_at DESC LIMIT 200",[p.role==='techadmin'])).rows;
+        return studioAccounts(db,p,url.searchParams.get('view')==='archive');
       }
       if(path[0]==='studio'&&path[1]==='accounts'&&path.length===3&&method==='POST') {await updateAccount(db,p,uuid(path[2]),await jsonBody(req));return {ok:true};}
+      if(key==='studio/invitations'&&method==='POST') {
+        requireGrant(p,'students.approve');
+        const {mode}=registrationInviteInput.parse(await jsonBody(req));
+        return createRegistrationInvite(db,p,mode);
+      }
+      if(path[0]==='studio'&&path[1]==='invitations'&&path.length===3&&method==='DELETE') {
+        await revokeRegistrationInvite(db,p,uuid(path[2]));return {ok:true};
+      }
+      if(path[0]==='studio'&&path[1]==='registration'&&path.length===3&&method==='POST') {
+        const decision=requestDecision.parse(await jsonBody(req));
+        await decideRegistration(db,p,uuid(path[2]),decision);return {ok:true};
+      }
       if(path[0]==='studio'&&path[1]==='devices'&&path.length===3&&method==='POST') {await resetDevice(db,p,uuid(path[2]));return {ok:true};}
       if(key==='studio/audit'&&method==='GET') {
-        check(p.role==='techadmin',403,'TECHADMIN_ONLY');
-        return (await db.query('SELECT id,actor_id,operation,entity_id,metadata,created_at FROM audit_events ORDER BY created_at DESC LIMIT 200')).rows;
+        return auditPage(db,p,readAuditFilter(k=>url.searchParams.get(k)));
       }
       if(key==='studio/outbox'&&method==='GET') {requireGrant(p,'support.read');return (await db.query('SELECT id,state,attempts,created_at FROM notification_outbox ORDER BY created_at DESC LIMIT 100')).rows;}
       if(key==='studio/outbox/retry'&&method==='POST') {
         requireGrant(p,'support.respond'); await db.query("UPDATE notification_outbox SET state='pending',attempts=0,next_attempt_at=now() WHERE state='failed'");
         await audit(db,p.id,'notifications.retry','outbox');return {ok:true};
       }
-      if(key==='studio/media'&&method==='GET') {requireGrant(p,'media.upload');return (await db.query('SELECT id,kind,state,created_at FROM media ORDER BY created_at DESC LIMIT 200')).rows;}
+      if(key==='studio/media'&&method==='GET') {
+        check(canManageMedia(p),403,'PERMISSION_DENIED');
+        return (await db.query('SELECT id,kind,state,created_at,file_name FROM media ORDER BY created_at DESC LIMIT 200')).rows;
+      }
+      if(path[0]==='studio'&&path[1]==='media'&&path.length===3&&method==='DELETE') {
+        await deleteMedia(db,p,uuid(path[2]));return {ok:true};
+      }
       if(key==='studio/media/upload'&&method==='POST') return uploadFile(db,p,req);
-      if(key==='studio/media/stream'&&method==='POST') {
-        requireGrant(p,'media.upload');
-        const result=await streamApi('/direct_upload','POST',{maxDurationSeconds:7200,requireSignedURLs:true,allowedOrigins:[new URL(baseUrl()).hostname],expiry:new Date(Date.now()+15*60000).toISOString()});
-        check(/^[a-f0-9]{32}$/.test(result.uid),502,'INVALID_STREAM_ID');
-        const uploadUrl=new URL(result.uploadURL);check(uploadUrl.protocol==='https:'&&uploadUrl.hostname==='upload.videodelivery.net',502,'UNSAFE_UPLOAD_URL');
-        const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,provider_id,state,created_by) VALUES('video','stream',$1,'uploading',$2) RETURNING id",[result.uid,p.id])).rows[0];
-        await audit(db,p.id,'media.stream.create',media.id);return {id:media.id,uploadUrl:result.uploadURL};
+      if(key==='studio/media/mux'&&method==='POST') {
+        requireGrant(p,'media.upload');await rateLimit(db,'video-upload:'+p.id,10,3600);
+        const input=req.body?z.object({fileName:z.string().max(255).optional()}).strict().parse(await jsonBody(req)):{};
+        return startVideo(db,p,baseUrl(),undefined,mediaFileName(input.fileName));
       }
       if(path[0]==='studio'&&path[1]==='media'&&path.length===4&&path[3]==='refresh'&&method==='POST') {
-        requireGrant(p,'media.upload'); const media=(await db.query<{provider_id:string}>("SELECT provider_id FROM media WHERE id=$1 AND provider='stream' FOR UPDATE",[uuid(path[2])])).rows[0];check(media,404,'MEDIA_NOT_FOUND');
-        const info=await streamApi('/'+media.provider_id);check(info.requireSignedURLs===true,409,'STREAM_MUST_BE_PRIVATE');
-        const state=info.readyToStream?'ready':info.status?.state==='error'?'failed':'processing';
-        await db.query('UPDATE media SET state=$2 WHERE id=$1',[path[2],state]);return {state};
+        return refreshVideo(db,p,uuid(path[2]));
+      }
+      if(path[0]==='studio'&&path[1]==='content'&&path[3]==='media'&&path.length===6&&method==='GET') {
+        requireGrant(p,'content.read');
+        const contentId=uuid(path[2]),id=uuid(path[4]);
+        const linked=(await db.query('SELECT 1 FROM content_media WHERE content_id=$1 AND media_id=$2',[contentId,id])).rows[0];
+        check(linked,404,'MEDIA_NOT_FOUND');
+        return serveMedia(db,req,p,id,path[5],'/api/studio/content/'+contentId+'/media');
       }
       if(path[0]==='media'&&path.length===3&&method==='GET') {
         const id=uuid(path[1]);
         const nodes=await listContent(db,p);
         const links=(await db.query<{content_id:string}>('SELECT content_id FROM content_media WHERE media_id=$1',[id])).rows;
         check(links.some(l=>nodes.some(n=>n.id===l.content_id)),403,'MEDIA_ACCESS_DENIED');
-        const media=(await db.query<{kind:string;provider_id:string;state:string;mime:string;bytes:Buffer}>('SELECT kind,provider_id,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
-        check(media?.state==='ready',409,'MEDIA_NOT_READY');
-        if(path[2]==='playback') {check(media.kind==='video',400,'VIDEO_REQUIRED');await rateLimit(db,'playback:'+p.id,20);return privatePlayback(media.provider_id);}
-        if(path[2]==='download') {check(media.kind==='document',400,'DOCUMENT_REQUIRED');const expires=Math.floor(Date.now()/1000)+120;const signature=downloadSignature(id,requestTokens(req).session!,expires);return {url:`/api/media/${id}/file?expires=${expires}&signature=${signature}`};}
-        if(path[2]==='file') {check(media.kind!=='video',400,'FILE_REQUIRED');if(media.kind==='document')verifyDownload(id,requestTokens(req).session!,Number(url.searchParams.get('expires')),url.searchParams.get('signature')??'');return new NextResponse(new Uint8Array(media.bytes),{headers:{'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff','Content-Disposition':`${media.kind==='document'?'attachment':'inline'}; filename="${id}.${media.kind==='document'?'pdf':'img'}"`,'Content-Security-Policy':"default-src 'none'; sandbox"}});}
+        if(path[2]==='playback'||path[2]==='access') {
+          check(canLearn(p,'academy'),403,'MEDIA_ACCESS_DENIED');
+        }
+        return serveMedia(db,req,p,id,path[2],'/api/media');
       }
       if(path[0]==='events'&&path[2]==='register'&&path.length===3&&method==='POST') {
         // Acquire the exclusive event lock before catalog share locks, avoiding lock-upgrade races.
@@ -152,17 +188,53 @@ export async function handleApi(req:NextRequest,path:string[],run:Runner=withDb)
         const registrations=(await db.query<{user_id:string;status:string}>('SELECT user_id,status FROM event_registrations WHERE event_id=$1',[event.id])).rows;
         const existing=registrations.find(r=>r.user_id===p.id);
         const status=data.cancel?'cancelled':existing?.status==='registered'?'registered':registrations.filter(r=>r.status==='registered').length<Number(event.data.capacity)?'registered':'waitlist';
-        await db.query('INSERT INTO event_registrations(user_id,event_id,status) VALUES($1,$2,$3) ON CONFLICT(user_id,event_id) DO UPDATE SET status=$3',[p.id,event.id,status]);return {status};
+        await db.query('INSERT INTO event_registrations(user_id,event_id,status) VALUES($1,$2,$3) ON CONFLICT(user_id,event_id) DO UPDATE SET status=$3',[p.id,event.id,status]);
+        if(existing?.status!==status)await audit(db,p.id,'event.'+status,event.id);
+        return {status};
       }
       if(key==='city-interests'&&method==='POST') {
         const data=z.object({city:z.string().trim().min(1).max(120),topic:z.string().trim().min(1).max(200)}).strict().parse(await jsonBody(req));
         await rateLimit(db,'city:'+p.id,5,86400);
-        await db.query('INSERT INTO city_interests(user_id,city,topic) VALUES($1,$2,$3)',[p.id,data.city,data.topic]);return {ok:true};
+        const {rows:[interest]}=await db.query<{id:string}>('INSERT INTO city_interests(user_id,city,topic) VALUES($1,$2,$3) RETURNING id',[p.id,data.city,data.topic]);
+        await audit(db,p.id,'event.city_interest',interest.id);return {ok:true};
       }
       throw new AppError(404,'ROUTE_NOT_FOUND');
     });
     return result instanceof NextResponse?result:apiResponse(result);
   } catch(error) {return errorResponse(error);}
+}
+
+async function serveMedia(db:Db,req:NextRequest,user:Principal,id:string,action:string,base:string) {
+  const media=(await db.query<{
+    id:string;kind:string;provider:string;provider_id:string;mux_upload_id:string;mux_playback_id:string;
+    mux_terminal:boolean;state:string;mime:string;bytes:Buffer;
+  }>('SELECT id,kind,provider,provider_id,mux_upload_id,mux_playback_id,mux_terminal,state,mime,bytes FROM media WHERE id=$1',[id])).rows[0];
+  check(media?.state==='ready',409,'MEDIA_NOT_READY');
+  const session=requestTokens(req).session!;
+  if(action==='playback'||action==='access') {
+    check(media.kind==='video'&&media.provider==='mux'&&!media.mux_terminal,409,'MUX_VIDEO_REQUIRED');
+    await rateLimit(db,'playback:'+user.id,20);
+    if(action==='access')return {authorized:true};
+    return authorizedMuxPlayback(db,media,session);
+  }
+  if(action==='download') {
+    check(media.kind==='document',400,'DOCUMENT_REQUIRED');
+    const expires=Math.floor(Date.now()/1000)+120;
+    const signature=downloadSignature(id,session,expires);
+    return {url:`${base}/${id}/file?expires=${expires}&signature=${signature}`};
+  }
+  if(action==='file') {
+    check(media.kind!=='video',400,'FILE_REQUIRED');
+    const download=media.kind==='document';
+    const query=req.nextUrl.searchParams;
+    if(download)verifyDownload(id,session,Number(query.get('expires')),query.get('signature')??'');
+    return new NextResponse(new Uint8Array(media.bytes),{headers:{
+      'Content-Type':media.mime,'Cache-Control':'private, no-store','X-Content-Type-Options':'nosniff',
+      'Content-Disposition':`${download?'attachment':'inline'}; filename="${id}.${download?'pdf':'img'}"`,
+      'Content-Security-Policy':"default-src 'none'; sandbox",
+    }});
+  }
+  throw new AppError(404,'ROUTE_NOT_FOUND');
 }
 
 async function uploadFile(db:Db,p:Principal,req:NextRequest) {
@@ -178,7 +250,8 @@ async function uploadFile(db:Db,p:Principal,req:NextRequest) {
     const expected:Record<string,string>={'image/jpeg':'jpeg','image/png':'png','image/webp':'webp'};
     check(info.width&&info.height&&info.width<=10000&&info.height<=10000&&info.format===expected[mime],400,'INVALID_IMAGE');
   }
-  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by) VALUES($1,'postgres',$2,$3,'ready',$4) RETURNING id",[mime==='application/pdf'?'document':'image',mime,bytes,p.id])).rows[0];
+  const media=(await db.query<{id:string}>("INSERT INTO media(kind,provider,mime,bytes,state,created_by,file_name) VALUES($1,'postgres',$2,$3,'ready',$4,$5) RETURNING id",
+    [mime==='application/pdf'?'document':'image',mime,bytes,p.id,mediaFileNameHeader(req.headers.get('x-juicy-file-name'))])).rows[0];
   await audit(db,p.id,'media.upload',media.id);return media;
 }
 
@@ -186,7 +259,16 @@ async function uploadFile(db:Db,p:Principal,req:NextRequest) {
 export function scheduleNotifications() {
   if(!process.env.DATABASE_URL||!process.env.TELEGRAM_BOT_TOKEN) return;
   after(async()=>{
-    try {const items=await withDb(db=>dispatchOutbox(db));await withDb(db=>deliverClaimed(db,items));}
+    const deadline=Date.now()+15000;
+    try {
+      // Each batch can take up to 24 seconds at Telegram's request timeout.
+      do {
+        const items=await withDb(db=>dispatchOutbox(db));
+        if(!items.length)break;
+        await withDb(db=>deliverClaimed(db,items));
+        if(items.length<3)break;
+      } while(Date.now()<deadline);
+    }
     catch { console.error('JUICY notification dispatch unavailable'); }
   });
 }
