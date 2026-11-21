@@ -376,6 +376,8 @@ body,.academy-content,.admin-panel{font-size:var(--type-body);line-height:1.6}
 .header-actions,.actions{flex-wrap:wrap}
 
 .public-main,.academy-content{padding-block:var(--page-space)}
+body:has(> .public-main + .footer){display:flex;flex-direction:column;min-height:100dvh}
+.public-main:has(+.footer){flex:1}
 .admin{padding-block:var(--page-space)}
 .admin-grid{grid-template-columns:minmax(155px,200px) minmax(0,1fr);gap:clamp(12px,2vw,24px)}
 .admin-panel{min-width:0;padding:clamp(14px,2.5vw,28px)}
@@ -435,6 +437,7 @@ body,.academy-content,.admin-panel{font-size:var(--type-body);line-height:1.6}
 .section-card strong{font-size:var(--type-body)}
 .card-img{height:auto;aspect-ratio:16/10;flex:none}
 .card-img img{position:absolute;inset:0;display:block}
+.card-img.product-dark img{background:#000}
 .card-body{padding:clamp(12px,1.65vw,18px)}
 .card-body .meta{font-size:11px;color:var(--accent-text)}
 .card-body h3{font-size:var(--type-card);line-height:1.25}
