@@ -88,7 +88,7 @@ export function CreateInvitation() {
     <label>Тип ссылки<select value={mode} disabled={pending} onChange={event=>setMode(event.target.value==='multi'?'multi':'single')}>
       {Object.entries(inviteModeLabels).map(([value,label])=><option key={value} value={value}>{label}</option>)}
     </select></label>
-    <p>{mode==='single'?'Один человек может подать заявку в течение 3 дней.':'Несколько человек могут подать заявки по этой ссылке в течение 3 дней.'} Для заявки нужны контакт Telegram, имя и фамилия.</p>
+    <p>{mode==='single'?'Один человек может подать заявку в течение 3 дней.':'Несколько человек могут подать заявки по этой ссылке в течение 3 дней.'} Для заявки нужны контакт Telegram, фамилия и имя.</p>
     <button type="button" className="btn btn-dark" disabled={pending} onClick={async()=>{
       setPending(true);
       setStatus('');

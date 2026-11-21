@@ -4,6 +4,7 @@ import { AcademySections } from '@/components/academy-sections';
 import { StarterProgram } from '@/components/starter-program';
 import { copy } from '@/lib/locale';
 import { academyData } from '@/lib/pages';
+import { academyName } from '@/lib/security';
 import { siteLocale } from '@/lib/site-locale';
 import { starterProgram } from '@/lib/starter-program';
 
@@ -15,7 +16,7 @@ export default async function Page() {
   const nextLesson=nodes.find(node=>node.id===resume?.lesson_id);
   return <div className="academy-dashboard">
     <div className="academy-welcome">
-      <h1>{t('Рады видеть вас,','Welcome,')} <span>{user.display_name}</span></h1>
+      <h1>{t('Рады видеть вас,','Welcome,')} <span>{academyName(user)}</span></h1>
       {nextLesson&&!program.remaining?<Link className="btn btn-dark btn-small" href={contentHref(nextLesson)}>{t('Продолжить','Continue')} →</Link>:null}
     </div>
     <StarterProgram locale={locale} program={program} dashboard/>

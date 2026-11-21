@@ -16,7 +16,7 @@ import { eventsWithSeats } from '@/lib/events';
 import { localEventTime } from '@/lib/event-time';
 import { contentLang,contentLanguages,copy } from '@/lib/locale';
 import { academyData,pageTokens } from '@/lib/pages';
-import { principal } from '@/lib/security';
+import { academyName,principal } from '@/lib/security';
 import { siteLocale } from '@/lib/site-locale';
 import { supportHistory } from '@/lib/support';
 import { starterProgram } from '@/lib/starter-program';
@@ -66,7 +66,7 @@ export default async function Page({params,searchParams}:{params:Promise<{sectio
       <ContentCards nodes={items} locale={locale} empty={active?noResults:section==='coming-soon'?t('Здесь появятся опубликованные анонсы.','Published announcements will appear here.'):undefined}/>
     </>;
   }
-  if(section==='profile') return <><PageHead title={user.display_name}/>
+  if(section==='profile') return <><PageHead title={academyName(user)}/>
     <StarterProgram locale={locale} program={starterProgram(nodes,progress)}/>
     <div className="info-box"><h2>{t('Мой прогресс','My progress')}</h2><p>{t('Завершено уроков','Lessons completed')}: {progress.filter(p=>p.completed_at).length}</p>
       {progress.map(p=>{const node=nodes.find(n=>n.id===p.lesson_id);return node?<p key={p.lesson_id}><Link href={contentHref(node)}>{node.title} {p.completed_at?'✓':`· ${p.position_seconds} ${t('сек','sec')}`}</Link></p>:null;})}</div>

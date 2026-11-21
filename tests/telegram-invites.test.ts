@@ -6,7 +6,7 @@ import { NextRequest } from 'next/server';
 import { GET as contactPage } from '../src/app/telegram/contact/route';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
-import { hash, principal, type Tokens } from '../src/lib/security';
+import { academyName, hash, principal, type Tokens } from '../src/lib/security';
 import { decideRegistration, pendingRegistrationRequests, registrationInvites } from '../src/lib/telegram-access';
 import { processTelegramUpdate } from '../src/lib/support';
 import { fixture } from './helpers';
@@ -87,9 +87,14 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal((await sendUpdate(5, { contact })).status, 200);
     assert.deepEqual(await (await sendUpdate(5, { contact })).json(), { duplicate: true });
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
-    assert.match(messages.at(-1)!.text,/имя и фамилию/);
-    assert.equal((await sendUpdate(21,{text:'Test'})).status,200);
-    assert.equal((await sendUpdate(22,{text:'Синтетический Ученик'})).status,200);
+    assert.match(messages.at(-1)!.text,/Введите вашу фамилию/);
+    assert.equal((await sendUpdate(21,{text:'123'})).status,200);
+    assert.match(messages.at(-1)!.text,/Введите вашу фамилию/);
+    assert.equal((await sendUpdate(22,{text:'Ученик'})).status,200);
+    assert.match(messages.at(-1)!.text,/Введите ваше имя/);
+    assert.equal((await sendUpdate(39,{contact})).status,200);
+    assert.match(messages.at(-1)!.text,/Введите ваше имя/);
+    assert.equal((await sendUpdate(40,{text:'Синтетический'})).status,200);
     assert.equal((await sendUpdate(23,{text:'Сайт Braun'})).status,200);
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
     assert.match(messages.at(-1)!.text,/Введите номер заказа/);
@@ -103,6 +108,8 @@ test('a verified bot request stays outside users until Studio invites it, then o
     const requests = await f.run(db => pendingRegistrationRequests(db, reader.p));
     assert.equal(requests.length, 1);
     assert.equal(requests[0].display_name, 'Синтетический Ученик');
+    assert.equal(requests[0].first_name,'Синтетический');
+    assert.equal(requests[0].last_name,'Ученик');
     assert.equal(requests[0].order_source,'braun');
     assert.equal(requests[0].order_number,'БР12345');
     assert.equal(requests[0].phone, contact.phone_number);
@@ -136,6 +143,8 @@ test('a verified bot request stays outside users until Studio invites it, then o
     };
     const approved = await f.run(db => principal(db, tokens));
     assert.equal(approved.role, 'student');
+    assert.equal(academyName(approved),'Синтетический');
+    assert.equal(academyName({display_name:'Legacy Surname'}),'Legacy');
     assert.deepEqual(approved.scopes.sort(), ['academy','kenwood']);
     assert.equal((await call('auth/telegram', { code })).status, 401);
 
@@ -163,9 +172,10 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.match(messages.at(-1)!.text,/Доступ приостановлен/);
     assert.equal((await call(account,{action:'delete'},{tokens:newStaff})).status,200);
     assert.equal((await f.engine.query('SELECT id FROM registration_requests WHERE telegram_id=$1',[telegramId])).rows.length,0);
+    assert.deepEqual((await f.engine.query('SELECT first_name,last_name FROM users WHERE id=$1',[approved.id])).rows,[{first_name:null,last_name:null}]);
     await sendUpdate(34,{text:'/start request'});
     assert.equal(messages.at(-2)?.reply_markup?.keyboard?.[0][0].request_contact,true);
-    for(const [id,data] of [[35,{contact}],[36,{text:'Синтетический Ученик'}],[37,{text:'Kaspi'}],[38,{text:'12345678'}]] as const)
+    for(const [id,data] of [[35,{contact}],[36,{text:'Ученик'}],[41,{text:'Синтетический'}],[37,{text:'Kaspi'}],[38,{text:'12345678'}]] as const)
       assert.equal((await sendUpdate(id,data)).status,200);
     const again=await f.run(db=>pendingRegistrationRequests(db,tech.p));
     assert.equal(again.length,1);
@@ -225,25 +235,30 @@ test('single-use and reusable Studio links expire in three days and require appr
 
     const first=telegramId+42,second=telegramId+43;
     await run(first,invite.start);
-    assert.match(replies.at(-2)!,/Затем бот спросит имя и фамилию/);
+    assert.match(replies.at(-2)!,/Затем бот спросит фамилию, затем имя/);
     assert.match(replies.at(-1)!,/кнопкой прямо под этим сообщением/);
     await run(first,undefined,contact);
-    await run(first,'Synthetic Learner');
+    await run(first,'Learner');
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
     await run(first,undefined,{...contact,user_id:first});
-    await run(first,'Synthetic');
-    assert.match(replies.at(-1)!,/Введите ваше имя и фамилию/);
+    await run(first,'123');
+    assert.match(replies.at(-1)!,/Введите вашу фамилию/);
+    await run(first,'Learner');
+    assert.match(replies.at(-1)!,/Введите ваше имя/);
+    assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,0);
     await run(second,invite.start);
     await run(second,undefined,{...contact,user_id:second});
-    await run(first,'Synthetic Learner');
+    await run(first,'Synthetic');
     assert.match(replies.at(-1)!,/Заявка отправлена/);
-    await run(second,'Synthetic Second');
+    await run(second,'Second');
     assert.match(replies.at(-1)!,/Ссылка недействительна/);
     await run(second,invite.start);
     assert.match(replies.at(-1)!,/Ссылка недействительна/);
     const [request]=await f.run(db=>pendingRegistrationRequests(db,tech.p));
     assert.equal(request.invite_id,invite.id);
     assert.equal(request.display_name,'Synthetic Learner');
+    assert.equal(request.first_name,'Synthetic');
+    assert.equal(request.last_name,'Learner');
     assert.equal(request.order_source,null);
     assert.equal(request.order_number,null);
     assert.equal((await f.engine.query('SELECT id FROM users WHERE telegram_id=$1',[first])).rows.length,0);
@@ -254,7 +269,7 @@ test('single-use and reusable Studio links expire in three days and require appr
     const revoked=await create();
     await run(second,revoked.start);
     assert.equal((await call('studio/invitations/'+revoked.id,tech.tokens,'DELETE')).status,200);
-    await run(second,'Synthetic Second');
+    await run(second,'Second');
     assert.match(replies.at(-1)!,/Ссылка недействительна/);
 
     const expired=await create();
@@ -266,7 +281,8 @@ test('single-use and reusable Studio links expire in three days and require appr
     const switchable=await create();
     await run(second,switchable.start);
     await run(second,'/start request');
-    await run(second,'Synthetic Second');
+    await run(second,'Second');
+    await run(second,'Synthetic');
     assert.match(replies.at(-1)!,/Где оформлен заказ/);
     assert.equal((await f.engine.query('SELECT id FROM registration_requests')).rows.length,1);
     await f.run(db=>decideRegistration(db,approver.p,request.id,{action:'invite',role:'student',grants:[]}));
@@ -278,7 +294,8 @@ test('single-use and reusable Studio links expire in three days and require appr
     for(const id of [third,fourth]){
       await run(id,multi.start);
       await run(id,undefined,{...contact,user_id:id});
-      await run(id,'Synthetic Learner');
+      await run(id,'Learner');
+      await run(id,'Synthetic');
       assert.match(replies.at(-1)!,/Заявка отправлена/);
     }
     await run(third,multi.start);

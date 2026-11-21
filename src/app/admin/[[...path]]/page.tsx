@@ -186,7 +186,7 @@ export default async function Page({params,searchParams}:{params:Promise<{path?:
           id:request.id,terms:[request.display_name,request.phone,request.order_number].filter(Boolean).join(' '),
           values:{channel:[request.invite_id?'invite':'order'],source:request.order_source?[request.order_source]:[]},
           content:<section className="studio-record">
-            <h2>{request.display_name}</h2><p>{request.phone}</p>
+            <h2>{request.last_name&&request.first_name?request.last_name+' '+request.first_name:request.display_name}</h2><p>{request.phone}</p>
             {request.invite_id?<p className="studio-hint">По ссылке-приглашению · без заказа</p>:request.order_source&&request.order_number?
               <p>{orderSourceLabels[request.order_source]} · заказ <strong>{request.order_number}</strong></p>:
               <p className="studio-hint">Ожидает магазин и номер заказа. Заявитель может дополнить данные в Telegram.</p>}

@@ -6,7 +6,7 @@ import { grants,learningTracks } from './catalog';
 export { grants } from './catalog';
 export type Grant = typeof grants[number];
 export type Role = 'guest' | 'student' | 'admin' | 'techadmin';
-export type Principal = { id: string; display_name: string; role: Role; status: string; grants: string[]; scopes: string[] };
+export type Principal = { id: string; display_name: string; first_name?:string|null; role: Role; status: string; grants: string[]; scopes: string[] };
 export type Tokens = { session?: string; device?: string };
 export const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 export const token = () => randomBytes(32).toString('base64url');
@@ -36,6 +36,9 @@ export function hasGrant(p: Principal, grant: Grant) { return p.status === 'appr
 export function isStudioRole(role: Role) { return role === 'admin' || role === 'techadmin'; }
 export function requireGrant(p: Principal, grant: Grant) { check(hasGrant(p,grant),403,'PERMISSION_DENIED'); }
 export function requireApproved(p: Principal) { check(p.status === 'approved',403,'APPROVAL_REQUIRED'); }
+export function academyName(user:Pick<Principal,'display_name'|'first_name'>) {
+  return user.first_name ?? user.display_name.trim().split(/\s+/,1)[0];
+}
 export function canLearn(p: Principal, audience: string,tracks:readonly string[]=learningTracks) {
   if (audience === 'public') return true;
   if (p.status !== 'approved') return false;
@@ -46,7 +49,7 @@ export function canLearn(p: Principal, audience: string,tracks:readonly string[]
 
 export async function principal(db: Db, tokens: Tokens, allowPending = false): Promise<Principal> {
   check(tokens.session && tokens.device,401,'LOGIN_REQUIRED');
-  const { rows } = await db.query<{id:string;display_name:string;status:string;role:Role}>(`SELECT u.id,u.display_name,u.status,u.role FROM sessions s
+  const { rows } = await db.query<{id:string;display_name:string;first_name:string|null;status:string;role:Role}>(`SELECT u.id,u.display_name,u.first_name,u.status,u.role FROM sessions s
     JOIN users u ON u.id=s.user_id JOIN devices d ON d.id=s.device_id AND d.user_id=u.id
     WHERE s.token_hash=$1 AND d.binding_hash=$2 AND s.revoked_at IS NULL AND d.revoked_at IS NULL AND s.expires_at>now()
     FOR SHARE OF u,s,d`,[hash(tokens.session),hash(tokens.device)]);

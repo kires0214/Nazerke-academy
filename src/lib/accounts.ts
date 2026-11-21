@@ -30,7 +30,7 @@ async function removeAccountData(db:Db,userId:string,telegramId:string) {
   await db.query('DELETE FROM support_messages WHERE thread_id IN (SELECT id FROM support_threads WHERE user_id=$1)',[userId]);
   await db.query('DELETE FROM support_threads WHERE user_id=$1',[userId]);
   // Keep the opaque UUID for immutable audit and attribution of existing Studio content.
-  await db.query(`UPDATE users SET telegram_id=NULL,display_name='Удалённый аккаунт',status='deleted',
+  await db.query(`UPDATE users SET telegram_id=NULL,display_name='Удалённый аккаунт',first_name=NULL,last_name=NULL,status='deleted',
     archived_from=NULL,approved_at=NULL,approved_by=NULL,telegram_opt_in=false WHERE id=$1`,[userId]);
 }
 

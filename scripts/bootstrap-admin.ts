@@ -7,10 +7,11 @@ await withDb(async db=>{
   await db.query('SELECT pg_advisory_xact_lock(719481032)');
   const existing=(await db.query("SELECT id FROM users WHERE role='techadmin'")).rows;
   check(!existing.length,409,'TECHADMIN_ALREADY_EXISTS');
-  const request=(await db.query<{id:string;display_name:string}>(`SELECT id,display_name FROM registration_requests
+  const request=(await db.query<{id:string;display_name:string;first_name:string|null;last_name:string|null}>(`SELECT id,display_name,first_name,last_name FROM registration_requests
     WHERE telegram_id=$1 AND status='requested' AND (invite_id IS NOT NULL OR order_source IS NOT NULL) FOR UPDATE`,[id])).rows[0];
   if(request) {
-    await db.query('INSERT INTO users(telegram_id,display_name) VALUES($1,$2) ON CONFLICT(telegram_id) DO NOTHING',[id,request.display_name]);
+    await db.query('INSERT INTO users(telegram_id,display_name,first_name,last_name) VALUES($1,$2,$3,$4) ON CONFLICT(telegram_id) DO NOTHING',
+      [id,request.display_name,request.first_name,request.last_name]);
     await db.query("UPDATE registration_requests SET status='invited',phone=NULL,order_source=NULL,order_number=NULL,reviewed_at=now() WHERE id=$1",[request.id]);
   }
   const user=(await db.query<{id:string}>("SELECT id FROM users WHERE telegram_id=$1 AND status<>'blocked' FOR UPDATE",[id])).rows[0];

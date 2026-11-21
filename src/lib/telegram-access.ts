@@ -9,7 +9,7 @@ import { audit, createLogin, grants, hash, lockTelegramRegistration, rateLimit, 
 import { orderSourceLabels, type InviteMode } from './catalog';
 
 const phone = z.string().regex(/^\+?[0-9]{7,15}$/);
-const fullName=z.string().min(3).max(120).regex(/^\p{L}[\p{L}\p{M}'’.-]*(?: \p{L}[\p{L}\p{M}'’.-]*)+$/u);
+const namePart=z.string().min(1).max(50).regex(/^\p{L}[\p{L}\p{M}'’.-]*(?: \p{L}[\p{L}\p{M}'’.-]*)*$/u);
 const orderNumber=z.string().min(1).max(80).regex(/^[\p{L}\p{Nd}]+$/u);
 const orderSources:Record<string,keyof typeof orderSourceLabels>={
   kaspi:'kaspi',каспи:'kaspi',kenwood:'kenwood',кенвуд:'kenwood','сайт kenwood':'kenwood',
@@ -135,7 +135,7 @@ export async function handleTelegramAccess(
   const askPhone=async(typed=false)=>{
     const origin=baseUrl();
     const intro=typed?'Номер в тексте не подтверждает контакт.':'Академия открыта по приглашениям.';
-    const steps=inviteDraft?'имя и фамилию':'имя, фамилию, магазин и номер заказа';
+    const steps=inviteDraft?'фамилию, затем имя':'фамилию, имя, магазин и номер заказа';
     await send(telegramId, intro+' Нажмите «Поделиться номером телефона» и подтвердите отправку своего контакта. Если открыта обычная клавиатура, нажмите значок из четырёх точек рядом с полем сообщения. Затем бот спросит '+steps+'. Обработка данных: '+origin+'/privacy',
       undefined, {keyboard:[[{text:'Поделиться номером телефона',request_contact:true}]],resize_keyboard:true,one_time_keyboard:false,is_persistent:true});
     if(origin.startsWith('https:')){
@@ -148,11 +148,12 @@ export async function handleTelegramAccess(
       }
     }
   };
-  const askName=()=>send(telegramId,'Введите ваше имя и фамилию одним сообщением.',undefined,{remove_keyboard:true});
+  const askSurname=()=>send(telegramId,'Введите вашу фамилию.',undefined,{remove_keyboard:true});
+  const askName=()=>send(telegramId,'Введите ваше имя.',undefined,{remove_keyboard:true});
   const askSource=()=>send(telegramId,'Где оформлен заказ? Выберите магазин.',undefined,
     {keyboard:[Object.values(orderSourceLabels).map(text=>({text}))],resize_keyboard:true,one_time_keyboard:true});
   const askOrder=()=>send(telegramId,'Введите номер заказа из подтверждения покупки. Только буквы и цифры, без пробелов и знаков. Например: AB12345.',undefined,{remove_keyboard:true});
-  const submit=async(name:string,number:string,source:keyof typeof orderSourceLabels|null=null,order:string|null=null)=>{
+  const submit=async(firstName:string,lastName:string,number:string,source:keyof typeof orderSourceLabels|null=null,order:string|null=null)=>{
     if(inviteDraft){
       const sql=inviteDraft.mode==='multi'
         ?`SELECT id FROM registration_invites WHERE id=$1 AND ${activeInvite} FOR SHARE`
@@ -165,11 +166,12 @@ export async function handleTelegramAccess(
       }
       await audit(db,null,'registration.link.use',inviteDraft.invite_id);
     }
-    await db.query(`INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number,invite_id)
-      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT (telegram_id) DO UPDATE SET display_name=EXCLUDED.display_name,
+    await db.query(`INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number,invite_id,first_name,last_name)
+      VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT (telegram_id) DO UPDATE SET display_name=EXCLUDED.display_name,
+      first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name,
       phone=EXCLUDED.phone,order_source=EXCLUDED.order_source,order_number=EXCLUDED.order_number,invite_id=EXCLUDED.invite_id
       WHERE registration_requests.status='requested' AND registration_requests.invite_id IS NULL AND registration_requests.order_source IS NULL`,
-      [telegramId,name,number,source,order,inviteDraft?.invite_id??null]);
+      [telegramId,firstName+' '+lastName,number,source,order,inviteDraft?.invite_id??null,firstName,lastName]);
     await db.query('DELETE FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId]);
     if(inviteDraft)await clearInvite();
     await send(telegramId, 'Заявка отправлена. Если команда одобрит доступ, приглашение придёт в этот чат.',undefined,{remove_keyboard:true});
@@ -179,31 +181,32 @@ export async function handleTelegramAccess(
     const number=phone.safeParse(contact.phone_number.replace(/[\s().-]/g,''));
     if(String(contact.user_id)!==telegramId||!number.success){await askPhone();return true;}
     await db.query(`INSERT INTO telegram_registration_drafts(telegram_id,phone,expires_at) VALUES($1,$2,now()+interval '30 minutes')
-      ON CONFLICT(telegram_id) DO UPDATE SET phone=EXCLUDED.phone,display_name=NULL,order_source=NULL,expires_at=EXCLUDED.expires_at`,[telegramId,number.data]);
-    await askName();
-    return true;
+      ON CONFLICT(telegram_id) DO UPDATE SET phone=EXCLUDED.phone,expires_at=EXCLUDED.expires_at`,[telegramId,number.data]);
   }
-  const draft=(await db.query<{phone:string;display_name:string|null;order_source:keyof typeof orderSourceLabels|null}>(
-    'SELECT phone,display_name,order_source FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId])).rows[0];
-  const resume=login||join||openingInvite||text==='/start';
+  const draft=(await db.query<{phone:string;first_name:string|null;last_name:string|null;order_source:keyof typeof orderSourceLabels|null}>(
+    'SELECT phone,first_name,last_name,order_source FROM telegram_registration_drafts WHERE telegram_id=$1',[telegramId])).rows[0];
+  const resume=!!contact||login||join||openingInvite||text==='/start';
   if(!draft){
     if(resume||text&&!text.startsWith('/')){await askPhone(!resume);return true;}
     return false;
   }
-  if(inviteDraft&&draft.display_name)return submit(draft.display_name,draft.phone);
-  if(resume){
-    if(!draft.display_name)await askName();
-    else if(!draft.order_source)await askSource();
-    else await askOrder();
+  if(inviteDraft&&draft.first_name&&draft.last_name)return submit(draft.first_name,draft.last_name,draft.phone);
+  const value=text?.trim().replace(/\s+/g,' ')??'';
+  if(!draft.last_name){
+    const surname=namePart.safeParse(value);
+    if(resume||!surname.success){await askSurname();return true;}
+    await db.query("UPDATE telegram_registration_drafts SET last_name=$2,expires_at=now()+interval '30 minutes' WHERE telegram_id=$1",[telegramId,surname.data]);
+    await askName();
     return true;
   }
-  const value=text?.trim().replace(/\s+/g,' ')??'';
-  if(!draft.display_name){
-    const name=fullName.safeParse(value);
-    if(!name.success){await askName();return true;}
-    if(inviteDraft)return submit(name.data,draft.phone);
-    await db.query("UPDATE telegram_registration_drafts SET display_name=$2,expires_at=now()+interval '30 minutes' WHERE telegram_id=$1",[telegramId,name.data]);
-    await askSource();
+  if(!draft.first_name){
+    const name=namePart.safeParse(value);
+    if(resume||!name.success){await askName();return true;}
+    await db.query("UPDATE telegram_registration_drafts SET first_name=$2,display_name=$3,expires_at=now()+interval '30 minutes' WHERE telegram_id=$1",
+      [telegramId,name.data,name.data+' '+draft.last_name]);
+    if(inviteDraft)return submit(name.data,draft.last_name,draft.phone);
+    if(draft.order_source)await askOrder();
+    else await askSource();
     return true;
   }
   if(!draft.order_source){
@@ -215,7 +218,7 @@ export async function handleTelegramAccess(
   }
   const order=orderNumber.safeParse(value);
   if(!order.success){await askOrder();return true;}
-  return submit(draft.display_name,draft.phone,draft.order_source,order.data);
+  return submit(draft.first_name,draft.last_name,draft.phone,draft.order_source,order.data);
 }
 
 export async function redeemTelegramCode(db: Db, code: string, browserToken?: string) {
@@ -230,8 +233,8 @@ export async function redeemTelegramCode(db: Db, code: string, browserToken?: st
 
 export async function pendingRegistrationRequests(db: Db, actor: Principal) {
   requireGrant(actor, 'students.read');
-  return (await db.query<{ id: string; display_name: string; phone: string;order_source:keyof typeof orderSourceLabels|null;order_number:string|null;invite_id:string|null }>(
-    "SELECT id,display_name,phone,order_source,order_number,invite_id FROM registration_requests WHERE status='requested' ORDER BY created_at LIMIT 200")).rows;
+  return (await db.query<{id:string;display_name:string;first_name:string|null;last_name:string|null;phone:string;order_source:keyof typeof orderSourceLabels|null;order_number:string|null;invite_id:string|null}>(
+    "SELECT id,display_name,first_name,last_name,phone,order_source,order_number,invite_id FROM registration_requests WHERE status='requested' ORDER BY created_at LIMIT 200")).rows;
 }
 
 export async function decideRegistration(db: Db, actor: Principal, id: string, decision:z.infer<typeof requestDecision>) {
@@ -248,15 +251,17 @@ export async function decideRegistration(db: Db, actor: Principal, id: string, d
   const identity=(await db.query<{telegram_id:string}>('SELECT telegram_id FROM registration_requests WHERE id=$1',[id])).rows[0];
   check(identity,404,'REGISTRATION_NOT_FOUND');
   await lockTelegramRegistration(db,String(identity.telegram_id));
-  const { rows } = await db.query<{telegram_id:string;display_name:string;status:string;invite_id:string|null;order_source:string|null}>(
-    'SELECT telegram_id,display_name,status,invite_id,order_source FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
+  const { rows } = await db.query<{telegram_id:string;display_name:string;first_name:string|null;last_name:string|null;status:string;invite_id:string|null;order_source:string|null}>(
+    'SELECT telegram_id,display_name,first_name,last_name,status,invite_id,order_source FROM registration_requests WHERE id=$1 FOR UPDATE', [id]);
   const request = rows[0];
   check(request, 404, 'REGISTRATION_NOT_FOUND');
   check(request.status === 'requested', 409, 'REGISTRATION_REVIEWED');
   if (action === 'invite') {
     check(request.invite_id||request.order_source,409,'REGISTRATION_ORDER_REQUIRED');
-    const account = (await db.query<{ id: string }>("INSERT INTO users(telegram_id,display_name) VALUES($1,$2) ON CONFLICT (telegram_id) DO UPDATE SET telegram_id=EXCLUDED.telegram_id WHERE users.status='pending' AND users.role='student' RETURNING id",
-      [request.telegram_id, request.display_name])).rows[0];
+    const account=(await db.query<{id:string}>(`INSERT INTO users(telegram_id,display_name,first_name,last_name) VALUES($1,$2,$3,$4)
+      ON CONFLICT (telegram_id) DO UPDATE SET display_name=EXCLUDED.display_name,first_name=EXCLUDED.first_name,last_name=EXCLUDED.last_name
+      WHERE users.status='pending' AND users.role='student' RETURNING id`,
+      [request.telegram_id,request.display_name,request.first_name,request.last_name])).rows[0];
     check(account, 409, 'ACCOUNT_EXISTS');
     await updateAccount(db, actor, account.id, { action: 'approve' });
     if(decision.role==='admin')await updateAccount(db,actor,account.id,{action:'staff',role:'admin',grants:decision.grants});
