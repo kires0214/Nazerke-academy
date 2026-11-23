@@ -4,6 +4,17 @@ import {createElement} from 'react';
 import {renderToStaticMarkup} from 'react-dom/server';
 import {PublicShell,AcademyShell,StudioShell} from '../src/components/shells';
 import {RichText} from '../src/components/cards';
+import {VideoPlayer} from '../src/components/video-player';
+import {EventCalendar} from '../src/components/event-calendar';
+import {CatalogTabs} from '../src/components/catalog-tabs';
+import {AcademySections} from '../src/components/academy-sections';
+import {StarterProgram} from '../src/components/starter-program';
+import {SectionSearch} from '../src/components/section-search';
+import {readCatalogSearch} from '../src/lib/catalog-search';
+import {starterProgram} from '../src/lib/starter-program';
+import {academyNavigation} from '../src/lib/site-navigation';
+import {bodySchema} from '../src/lib/content';
+import {eventTimeFromInput,localEventTime} from '../src/lib/event-time';
 import {syntheticPrincipal} from './helpers';
 import sharp from 'sharp';
 import {readFile} from 'node:fs/promises';
@@ -11,13 +22,94 @@ test('public, academy and Studio shells each have one header; student has one pr
   const publicHtml=renderToStaticMarkup(createElement(PublicShell,{children:'Public'}));
   const academy=renderToStaticMarkup(createElement(AcademyShell,{user:syntheticPrincipal('student'),children:'Academy'}));
   const studio=renderToStaticMarkup(createElement(StudioShell,{user:syntheticPrincipal('techadmin'),children:'Studio'}));
-  for(const html of [publicHtml,academy,studio])assert.equal((html.match(/<header/g)??[]).length,1);
-  assert.equal((academy.match(/aria-label="Мой профиль"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
+  for(const html of [publicHtml,academy,studio]){
+    assert.equal((html.match(/<header class="juicy-header"/g)??[]).length,1);
+    assert.match(html,/class="header-control header-primary"/);
+  }
+  for(const html of [academy,studio])assert.equal((html.match(/>Выйти<\/button>/g)??[]).length,1);
+  assert.doesNotMatch(publicHtml,/>Выйти<\/button>/);
+  assert.match(publicHtml,/<a[^>]+href="\/login"[^>]*>Войти<\/a>/);
+  assert.doesNotMatch(publicHtml,/Вы вошли/);
+  const signedIn=renderToStaticMarkup(createElement(PublicShell,{user:{status:'approved'},children:'Public'}));
+  assert.match(signedIn,/Вы вошли/);
+  assert.match(signedIn,/<a[^>]+href="\/academy"[^>]*>В Академию<\/a>/);
+  assert.doesNotMatch(signedIn,/<a[^>]+href="\/login"[^>]*>Войти<\/a>/);
+  assert.equal((academy.match(/href="\/academy\/profile"/g)??[]).length,1);assert.equal(academy.includes('href="/admin'),false);
   assert.equal(academy.includes('by Nazerke'),false);assert.match(academy,/Мобильная навигация/);
+  assert.match(academy,/href="\/academy">Главная<\/a><a[^>]+href="\/academy\/offers">Акции/);
+  assert.match(publicHtml,/href="\/">Главная<\/a><a[^>]+href="\/offers">Акции/);
+  for(const html of [publicHtml,academy])assert.match(html,/class="header-navigation"/);
+  for(const html of [academy,signedIn,studio]){
+    assert.match(html,/<details class="profile-menu"><summary[^>]*>Профиль<\/summary>/);
+    assert.match(html,/<div class="profile-menu-panel">.*class="profile-menu-item language-switch"/);
+    assert.doesNotMatch(html,/header-square language-switch/);
+  }
+  assert.doesNotMatch(publicHtml,/class="profile-menu"/);
+  assert.doesNotMatch(academy,/href="\/academy\/coming-soon"/);
+  assert.match(academy,/<footer[^>]*>.*href="\/academy\/contacts"/);
+  for(const path of ['recipes','materials','club'])assert.ok(!academy.includes('href="/academy/'+path+'"'));
   assert.equal(publicHtml.includes('JUICY Studio'),false);
+  for(const role of ['admin','techadmin'] as const){
+    const staffAcademy=renderToStaticMarkup(createElement(AcademyShell,{user:syntheticPrincipal(role),children:'Academy'}));
+    assert.match(staffAcademy,/<a[^>]+href="\/admin"[^>]*>Studio<\/a>/);
+  }
+});
+test('Academy section heroes have separate images and tabs switch subgroups in place',()=>{
+  const cards=renderToStaticMarkup(createElement(AcademySections,{locale:'ru',all:true,catalog:[]}));
+  const destinations=academyNavigation('ru').slice(1,-1).map(link=>link.href);
+  assert.deepEqual([...cards.matchAll(/href="([^"]+)"/g)].map(match=>match[1]),destinations);
+  const images=[...cards.matchAll(/<img[^>]+src="([^"]+)"/g)].map(match=>match[1]);
+  assert.deepEqual(images,destinations.map(href=>href.replace('/academy/','/academy-covers/')+'.webp'));
+  assert.match(cards,/academy-hero-coming-soon/);
+  assert.doesNotMatch(cards,/Контакты/);
+  for(const section of ['kenwood','braun','ambassador'] as const){
+    const tabs=renderToStaticMarkup(createElement(CatalogTabs,{section,active:'attachments',locale:'ru'}));
+    const path=section==='ambassador'?'ambassadors':section;
+    for(const group of ['training','recipes','attachments'])assert.ok(tabs.includes(`/academy/${path}?group=${group}`));
+    const active=tabs.split('<a ').find(link=>link.includes('aria-current="page"'));
+    assert.match(active??'',/group=attachments"/);
+    assert.equal((tabs.match(/aria-current="page"/g)??[]).length,1);
+  }
+});
+test('section filters keep their subsection and tabs keep the applied search',()=>{
+  const search=readCatalogSearch({q:'Кухня',kind:'lesson',language:'RU'},{kinds:true});
+  const form=renderToStaticMarkup(createElement(SectionSearch,{locale:'ru',path:'/academy/kenwood',search,byKind:true,
+    keep:{group:'training'},clearHref:'/academy/kenwood?group=training'}));
+  assert.match(form,/role="search"/);
+  assert.match(form,/name="group" value="training"/);
+  assert.match(form,/name="kind"/);
+  const tabs=renderToStaticMarkup(createElement(CatalogTabs,{locale:'ru',section:'kenwood',active:'training',search}));
+  assert.match(tabs,/q=%D0%9A[^"]+kind=lesson[^"]+group=recipes/);
+  assert.match(tabs,/group=all/);
+});
+test('the empty starter program stays available in the profile only',()=>{
+  const program=starterProgram([],[]);
+  assert.equal(renderToStaticMarkup(createElement(StarterProgram,{program,locale:'ru',dashboard:true})),'');
+  const profile=renderToStaticMarkup(createElement(StarterProgram,{program,locale:'ru'}));
+  assert.match(profile,/id="starter"/);
+  assert.match(profile,/Стартовая программа/);
 });
 test('rich content escapes stored XSS rather than executing HTML',()=>{
   const html=renderToStaticMarkup(createElement(RichText,{text:'<script>alert(1)</script>\n\n## A heading'}));assert.equal(html.includes('<script>'),false);assert.match(html,/&lt;script&gt;/);assert.match(html,/<h2>A heading/);
+});
+test('private player renders no playback URL/token or iframe before server authorization',()=>{
+  const html=renderToStaticMarkup(createElement(VideoPlayer,{mediaId:'00000000-0000-4000-8000-000000000001'}));
+  assert.match(html,/<video/);assert.equal(html.includes('<iframe'),false);assert.equal(html.includes('stream.mux.com'),false);assert.equal(html.includes('token='),false);assert.equal(html.includes('MUX_'),false);assert.match(html,/Смотреть видео/);
+});
+test('calendar uses the local day, shows booking details, and routes guests through login',()=>{
+  const value='2027-06-01T00:30';
+  const startsAt=eventTimeFromInput(value);
+  assert.equal(localEventTime(startsAt),value);
+  assert.ok(startsAt.startsWith('2027-05-31')); // UTC is still in the previous month.
+  const node={id:'synthetic-event',kind:'event',title:'Синтетическая встреча',slug:'synthetic-event',description:'',
+    language:'RU',audience:'public',status:'published' as const,parent_id:null,sort_order:0,cover:null,version:1,published_at:null,
+    data:bodySchema.parse({startsAt,city:'Синтетический город',venueAddress:'Проверочный адрес',capacity:4})};
+  const html=renderToStaticMarkup(createElement(EventCalendar,{items:[{node,remaining:3}],month:'2027-06',base:'/events',canOpenDetails:false}));
+  assert.match(html,/meetings-2027-06-01/);
+  assert.match(html,/Проверочный адрес/);
+  assert.match(html,/Свободно мест: 3 из 4/);
+  assert.match(html,/href="\/login"/);
+  assert.match(html,/\?month=2027-07/);
 });
 test('25 original assets decode; four portraits are independent full images',async()=>{
   const manifest=JSON.parse(await readFile(new URL('../legacy-demo/asset-manifest.json',import.meta.url),'utf8'));

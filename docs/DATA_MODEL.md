@@ -14,6 +14,7 @@ Use migrations, constraints, FK, indexes, transactions. Avoid unnecessary LMS co
 ### Content
 - sections: id,parent_id,slug,title_ru/title_kz,description,sort_order,status.
 - media_assets: id, kind image|document|video, provider, provider_id, processing_state, access_policy, mime_type, size.
+- Mux video implementation extends `media` with unique `mux_upload_id` / `mux_playback_id`, duration and terminal-state marker; `provider_id` is the Mux asset ID. `mux_webhook_events` keeps only event ID/type/time for transactional deduplication. Historical provider IDs are retained, never converted into Mux IDs.
 - courses: id,slug,title,description,cover_media_id,visibility/status.
 - course_modules: id,course_id,title,sort_order.
 - lessons: id,module_id,program kenwood|juicy|ambassador,slug,title,rich_content,sort_order,media_id,status.
