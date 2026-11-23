@@ -15,8 +15,10 @@ Every PASS requires actual evidence from DEV (exact SHA, test output) and PROD s
 | Deletion | Separate grants, deny published or referenced records, cancel or delete owned Mux media, preserve an audit event |
 | Audit | Tech Admin sees all actions, delegated admin sees own and learner activity, others denied; repeat visits show path, actor, time and count |
 | Student role | Cannot read admin or other user's progress/support, even by URL |
+| Program isolation | All eight combinations of learner grants for Kenwood, Braun and Ambassador School. Verify catalog teasers, detail and search, progress, favorites, event registration, signed files and playback, including immediately after changing grants. |
 | Ambassador role | Student denied protected ambassador lessons; ambassador allowed |
 | Techadmin RBAC | Techadmin grant updates audited; normal admin cannot self-elevate |
+| Delegated Studio actions | Approval grants Academy membership and any explicitly selected learning programs. Verify per-kind content grants, saving, publishing, deletion and audit with delegated admin and Tech Admin. |
 | Telegram invite and login | Verify private self-contact, staff-only approval, no account before invite, forged webhook rejection and expired/replayed code rejection |
 | Invitation links | Authorized staff can create single-use and reusable links with a three-day lifetime and revoke active links. The bot collects last and first names separately and invitations still require review. The public flow requires a store and an alphanumeric order number. Expired and revoked links are rejected. A single-use link is exhausted after the first submitted request. The Academy profile shows only the first name. |
 | Approval | Pending/blocked users do not receive private content/signed media |

@@ -70,7 +70,7 @@ export async function updateAccount(db:Db,actor:Principal,userId:string,raw:unkn
   if(input.action==='approve') {
     check(target.status==='pending',409,'USER_NOT_PENDING');
     await db.query("UPDATE users SET status='approved',approved_by=$2,approved_at=now() WHERE id=$1",[userId,actor.id]);
-    if(target.role==='student')await db.query("INSERT INTO access_entitlements(user_id,scope,granted_by) VALUES($1,'academy',$2),($1,'kenwood',$2) ON CONFLICT DO NOTHING",[userId,actor.id]);
+    if(target.role==='student')await db.query("INSERT INTO access_entitlements(user_id,scope,granted_by) VALUES($1,'academy',$2) ON CONFLICT DO NOTHING",[userId,actor.id]);
     if(target.telegram_opt_in) await db.query('INSERT INTO notification_outbox(chat_id,body) VALUES($1,$2)',[target.telegram_id,'Доступ к JUICY Academy подтверждён.']);
   }
   if(input.action==='block') {

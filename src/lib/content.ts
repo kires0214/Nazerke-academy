@@ -95,20 +95,25 @@ export async function getContent(db: Db, idOrSlug: string, user?: Principal) {
   check(node,404,'CONTENT_NOT_FOUND');
   return node;
 }
-const kindGrants: Record<string,Grant> = {section:'sections.manage',course:'courses.manage',module:'courses.manage',lesson:'courses.manage',recipe:'recipes.manage',event:'events.manage',post:'announcements.manage'};
+const kindGrants: Record<typeof kinds[number],Grant> = {
+  section:'sections.manage',material:'sections.manage',
+  course:'courses.manage',module:'courses.manage',lesson:'courses.manage',
+  recipe:'recipes.manage',attachment:'recipes.manage',collection:'recipes.manage',
+  event:'events.manage',post:'announcements.manage',
+};
 export function canEditContent(actor:Principal,kind:string,status?:Content['status']) {
-  const grant=kindGrants[kind];
-  return hasGrant(actor,'content.edit') && (!grant || hasGrant(actor,grant)) &&
+  const grant=Object.hasOwn(kindGrants,kind)?kindGrants[kind as typeof kinds[number]]:undefined;
+  return !!grant && hasGrant(actor,'content.edit') && hasGrant(actor,grant) &&
     (status!=='published' || hasGrant(actor,'content.publish'));
 }
 export function canDeleteContent(actor:Principal,kind:string) {
-  const grant=kindGrants[kind];
-  return hasGrant(actor,'content.delete') && (!grant || hasGrant(actor,grant));
+  const grant=Object.hasOwn(kindGrants,kind)?kindGrants[kind as typeof kinds[number]]:undefined;
+  return !!grant && hasGrant(actor,'content.delete') && hasGrant(actor,grant);
 }
 export async function saveContent(db: Db, actor: Principal, raw: unknown, id?: string) {
   const input = contentSchema.parse(raw);
   requireGrant(actor,'content.edit');
-  if(kindGrants[input.kind]) requireGrant(actor,kindGrants[input.kind]);
+  requireGrant(actor,kindGrants[input.kind]);
   const existing = id ? (await db.query<Content & Record<string,unknown>>('SELECT * FROM content WHERE id=$1 FOR UPDATE',[id])).rows[0] : null;
   if(id) { check(existing,404,'CONTENT_NOT_FOUND'); check(input.version === existing.version,409,'CONTENT_CHANGED_RELOAD'); check(existing.kind === input.kind,400,'KIND_IMMUTABLE'); }
   if (input.status === 'published' || existing?.status === 'published') requireGrant(actor,'content.publish');

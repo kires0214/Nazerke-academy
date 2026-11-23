@@ -9,8 +9,8 @@ type Permission=typeof grants[number];
 const grantNames:Record<Permission,string>={
   'content.read':'Открывать контент и предпросмотр','content.edit':'Создавать и редактировать материалы',
   'content.publish':'Публиковать и снимать с публикации','content.delete':'Архивировать и удалять материалы',
-  'sections.manage':'Управлять разделами','courses.manage':'Управлять курсами, модулями и уроками',
-  'recipes.manage':'Управлять рецептами','events.manage':'Управлять мастер-классами',
+  'sections.manage':'Управлять разделами и файлами','courses.manage':'Управлять курсами, модулями и уроками',
+  'recipes.manage':'Управлять рецептами, насадками и подборками','events.manage':'Управлять мастер-классами',
   'announcements.manage':'Управлять статьями и анонсами','media.upload':'Загружать файлы и видео',
   'media.delete':'Удалять файлы и видео','students.read':'Открывать список учеников и заявок',
   'students.approve':'Создавать приглашения, рассматривать заявки и подтверждать доступ','students.block':'Блокировать, архивировать и восстанавливать аккаунты',
@@ -115,7 +115,7 @@ export function RegistrationControls({id,canAssignTracks,canAssignAdmin}:{
   id:string;canAssignTracks:boolean;canAssignAdmin:boolean;
 }) {
   const [role,setRole]=useState('student');
-  const [tracks,setTracks]=useState<LearningTrack[]>(['kenwood']);
+  const [tracks,setTracks]=useState<LearningTrack[]>([]);
   const [selected,setSelected]=useState<string[]>([]);
   const [status,setStatus]=useState('');
   const [pending,setPending]=useState(false);

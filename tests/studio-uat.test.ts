@@ -3,10 +3,11 @@ import { test } from 'node:test';
 import { NextRequest } from 'next/server';
 import { handleApi } from '../src/lib/api';
 import { cookieNames } from '../src/lib/http';
-import { audit, type Tokens } from '../src/lib/security';
+import { audit, createLogin, principal, type Tokens } from '../src/lib/security';
 import { configureMux, syntheticMux } from './mux-fixtures';
 import { fixture } from './helpers';
 import { academyCatalog,saveContent } from '../src/lib/content';
+import { readCatalogSearch,searchCatalog } from '../src/lib/catalog-search';
 
 const origin='https://uat.juicy.invalid';
 process.env.APP_BASE_URL=origin;
@@ -331,4 +332,197 @@ test('built-in article favorites require approval and stay private to one accoun
     assert.equal((await call(route,'POST',first.tokens,{...body,enabled:false})).status,200);
     assert.deepEqual((await f.engine.query('SELECT user_id FROM builtin_article_favorites')).rows,[]);
   }finally{await f.close();}
+});
+
+test('UAT approval never grants an unselected learning track',async()=>{
+  const f=await fixture();
+  try {
+    const call=client(f),tech=await f.account('techadmin');
+    const reviewer=await f.account('admin','approved',[],['students.approve']);
+    const operator=await f.account('admin','approved',[],['students.approve','students.tracks']);
+    const approveRequest=async(telegramId:string)=>{
+      const {rows:[row]}=await f.engine.query<{id:string}>(
+        "INSERT INTO registration_requests(telegram_id,display_name,phone,order_source,order_number) VALUES($1,'Synthetic Braun customer','7000000','braun','SYN123') RETURNING id",[telegramId]);
+      return 'studio/registration/'+row.id;
+    };
+    const first='900009000000001',second='900009000000002';
+    const firstPath=await approveRequest(first);
+    assert.equal((await call(firstPath,'POST',reviewer.tokens,{action:'invite',role:'student',tracks:['braun']})).status,403);
+    assert.equal((await call(firstPath,'POST',reviewer.tokens,{action:'invite',role:'student'})).status,200);
+    assert.equal((await call(await approveRequest(second),'POST',operator.tokens,{action:'invite',role:'student',tracks:['braun']})).status,200);
+    const firstLogin=await f.run(db=>createLogin(db,first));
+    const secondLogin=await f.run(db=>createLogin(db,second));
+    assert.deepEqual((await f.run(db=>principal(db,{session:firstLogin.sessionToken,device:firstLogin.deviceToken}))).scopes,['academy']);
+    assert.deepEqual((await f.run(db=>principal(db,{session:secondLogin.sessionToken,device:secondLogin.deviceToken}))).scopes.sort(),['academy','braun']);
+    assert.equal((await call('studio/accounts/'+reviewer.id,'POST',reviewer.tokens,{action:'learning',enabled:true})).status,403);
+    assert.equal((await call('studio/accounts/'+reviewer.id,'POST',tech.tokens,{action:'delete'})).status,200);
+  }finally{await f.close();}
+});
+
+test('UAT Studio persists allowed work and rejects operations outside each delegated grant',async()=>{
+  const f=await fixture();
+  try {
+    const call=client(f),tech=await f.account('techadmin'),student=await f.account();
+    const editor=await f.account('admin','approved',[],['content.read','content.edit']);
+    const delegated=await f.account('admin','approved',[],['content.read','content.edit','recipes.manage','students.read','audit.read']);
+    const types=['attachment','collection','material'] as const;
+    const draft=(kind:string,slug:string)=>({kind,slug,title:'Synthetic '+kind});
+    const newRoute='studio/content';
+    for(const kind of types){
+      const payload=draft(kind,'unauthorized-'+kind);
+      assert.equal((await call(newRoute,'POST',editor.tokens,payload)).status,403,'missing kind grant: '+kind);
+      assert.equal((await f.engine.query('SELECT id FROM content WHERE slug=$1',[payload.slug])).rows.length,0);
+    }
+    for(const kind of ['attachment','collection'] as const){
+      const payload=draft(kind,'uat-delegated-'+kind);
+      const created=await call(newRoute,'POST',delegated.tokens,payload);
+      assert.equal(created.status,200,kind);
+      const {id}=await created.json();
+      const url=newRoute+'/'+id;
+      assert.equal((await call(url,'PATCH',delegated.tokens,{...payload,version:1,title:'Edited '+kind})).status,200);
+      assert.equal((await call(url,'PATCH',delegated.tokens,{...payload,version:2,status:'published'})).status,403);
+      assert.equal((await call(url,'DELETE',delegated.tokens)).status,403);
+      assert.deepEqual((await f.engine.query('SELECT status,version,title FROM content WHERE id=$1',[id])).rows,
+        [{status:'draft',version:2,title:'Edited '+kind}]);
+      assert.equal((await call(url,'PATCH',tech.tokens,{...payload,version:2,status:'published'})).status,200);
+      assert.equal((await call(url,'PATCH',tech.tokens,{...payload,version:3,status:'hidden'})).status,200);
+      assert.equal((await call(url,'DELETE',tech.tokens)).status,200);
+      assert.equal((await f.engine.query('SELECT id FROM content WHERE id=$1',[id])).rows.length,0);
+    }
+    assert.equal((await call(newRoute,'POST',delegated.tokens,draft('material','uat-delegated-material'))).status,403);
+    assert.equal((await call('studio/accounts/'+student.id,'POST',delegated.tokens,{action:'tracks',tracks:['braun']})).status,403);
+    assert.equal((await call('studio/accounts/'+delegated.id,'POST',delegated.tokens,{action:'staff',role:'admin',grants:['students.tracks']})).status,403);
+    assert.equal((await call('studio/accounts/'+tech.id,'POST',delegated.tokens,{action:'block'})).status,403);
+    assert.equal((await call('studio/devices/'+tech.id,'POST',delegated.tokens,{})).status,403);
+    assert.equal((await call('studio/accounts/'+delegated.id,'POST',tech.tokens,{action:'staff',role:'admin',grants:['students.read','students.tracks']})).status,200);
+    assert.equal((await call('studio/content','GET',delegated.tokens)).status,401);
+    const signedIn=await f.run(db=>createLogin(db,delegated.telegramId,delegated.tokens.device));
+    const fresh={session:signedIn.sessionToken,device:signedIn.deviceToken};
+    assert.equal((await call('studio/content','GET',fresh)).status,403);
+    assert.equal((await call('studio/accounts/'+student.id,'POST',fresh,{action:'tracks',tracks:['braun']})).status,200);
+    assert.equal((await call('profile','GET',student.tokens)).status,401);
+    assert.deepEqual((await f.engine.query('SELECT scope FROM access_entitlements WHERE user_id=$1 ORDER BY scope',[student.id])).rows,
+      [{scope:'academy'},{scope:'braun'}]);
+    const audit=await f.engine.query<{operation:string}>("SELECT operation FROM audit_events WHERE actor_id=$1 AND operation IN ('account.staff','content.delete')",[tech.id]);
+    assert.ok(audit.rows.some(row=>row.operation==='account.staff'));
+    assert.equal(audit.rows.filter(row=>row.operation==='content.delete').length,2);
+  }finally{await f.close();}
+});
+
+test('UAT learner access matrix keeps each program isolated across content, activity, and media',async t=>{
+  const f=await fixture(),restore=configureMux(),originalFetch=globalThis.fetch;
+  const oldBot=process.env.TELEGRAM_BOT_TOKEN;
+  process.env.TELEGRAM_BOT_TOKEN='999999999:synthetic_uat_download_key';
+  try{
+    const call=client(f),tech=await f.account('techadmin');
+    const tracks=['kenwood','braun','ambassador'] as const;
+    const assets=new Map<string,{id:string;upload:string;playback:string}>();
+    let callsToMux=0;
+    globalThis.fetch=async input=>{
+      const target=new URL(String(input));
+      assert.equal(target.origin,'https://api.mux.com');
+      const id=target.pathname.split('/').at(-1)!;
+      const asset=assets.get(id);
+      assert.ok(asset);
+      callsToMux++;
+      return Response.json({data:{id,upload_id:asset.upload,passthrough:asset.id,status:'ready',duration:60,
+        video_quality:'basic',resolution_tier:'1080p',max_resolution_tier:'1080p',playback_ids:[{id:asset.playback,policy:'signed'}]}});
+    };
+    const catalog=await Promise.all(tracks.map(async track=>{
+      const prefix='uat-isolation-'+track,secret='synthetic full content '+track,venue='synthetic venue '+track,model='Uat model '+track;
+      const media=async(kind:'document'|'video')=>(await f.engine.query<{id:string}>(
+        "INSERT INTO media(kind,provider,state,created_by,mime,bytes,provider_id,mux_upload_id,mux_playback_id,duration_seconds) VALUES($1,$2,'ready',$3,$4,$5,$6,$7,$8,$9) RETURNING id",
+        kind==='document'?[kind,'postgres',tech.id,'application/pdf',Buffer.from(secret),null,null,null,null]:
+          [kind,'mux',tech.id,null,null,'UatAsset'+track,'UatUpload'+track,'UatPlayback'+track,60])).rows[0].id;
+      const file=await media('document'),video=await media('video');
+      assets.set('UatAsset'+track,{id:video,upload:'UatUpload'+track,playback:'UatPlayback'+track});
+      const save=(kind:string,suffix:string,data:Record<string,unknown>={},props:Record<string,unknown>={})=>f.run(db=>saveContent(db,tech.p,{
+        kind,slug:prefix+'-'+suffix,title:prefix+' '+suffix,status:'published',data:{...data,body:secret},...props,
+      }));
+      const audience={tracks:[track],catalogSection:track==='braun'?'kenwood':track};
+      const course=await save('course','course',audience);
+      const module=await save('module','module',{}, {parentId:course});
+      const lesson=await save('lesson','lesson',{}, {parentId:module,mediaIds:[file,video]});
+      const material=await save('material','material',audience);
+      const attachment=await save('attachment','attachment',{...audience,model});
+      const recipe=await save('recipe','recipe',{...audience,ingredients:['Synthetic ingredient'],steps:['Synthetic step'],portions:2,duration:10},
+        {links:[attachment]});
+      const post=await save('post','offer',{...audience,postKind:'offer'});
+      const event=await save('event','event',{...audience,city:'Synthetic city',venueAddress:venue,capacity:20,startsAt:new Date(Date.now()+86400000).toISOString()});
+      return {track,lesson,file,video,recipe,event,attachment,ids:[course,module,lesson,material,attachment,recipe,post,event],prefix,secret,venue,model};
+    }));
+    const viewers: [string,string[]][]=[
+      ['none',[]],
+      ...tracks.map((track):[string,string[]]=>[track,[track]]),
+      ['Kenwood + Braun',['kenwood','braun']],
+      ['Kenwood + Ambassador',['kenwood','ambassador']],
+      ['Braun + Ambassador',['braun','ambassador']],
+      ['all tracks',[...tracks]],
+    ];
+    for(const [label,allowed] of viewers)await t.test(label,async()=>{
+      const user=await f.account('student','approved',['academy',...allowed]);
+      const scope=await f.run(db=>academyCatalog(db,user.p));
+      const result=await call('content?q=uat-isolation','GET',user.tokens);
+      assert.equal(result.status,200);
+      const listed=await result.json() as {id:string}[];
+      for(const item of catalog){
+        const canRead=allowed.includes(item.track);
+        for(const id of item.ids){
+          const card=scope.catalog.find(node=>node.id===id);
+          assert.ok(card,'title card '+id);
+          assert.equal(!!card.locked,!canRead,'card entitlement '+item.track);
+          assert.equal(listed.some(node=>node.id===id),canRead,'API visibility '+item.track);
+          assert.equal(scope.nodes.some(node=>node.id===id),canRead,'detail visibility '+item.track);
+          if(!canRead)assert.doesNotMatch(JSON.stringify(card),new RegExp(item.secret+'|'+item.venue+'|'+item.model));
+        }
+        const searches=searchCatalog(scope.catalog,readCatalogSearch({q:item.model}));
+        assert.equal(searches.some(row=>row.id===item.attachment),canRead,'protected model in search');
+        assert.equal((await call('progress','POST',user.tokens,{lessonId:item.lesson,position:12,completed:true})).status,canRead?200:404);
+        assert.equal((await call('favorites','POST',user.tokens,{contentId:item.recipe,enabled:true})).status,canRead?200:404);
+        assert.equal((await call('events/'+item.event+'/register','POST',user.tokens,{})).status,canRead?200:404);
+        const download=await call('media/'+item.file+'/download','GET',user.tokens);
+        assert.equal(download.status,canRead?200:403);
+        if(canRead){
+          const signedApi=(await download.json()).url.replace(/^\/api\//,'');
+          const content=await call(signedApi,'GET',user.tokens);
+          assert.equal(content.status,200);
+          assert.equal(await content.text(),item.secret);
+          const other=await f.account('student','approved',['academy',item.track]);
+          assert.equal((await call(signedApi,'GET',other.tokens)).status,403,'download URL bound to the original session');
+        }
+        const muxBefore=callsToMux;
+        const playback=await call('media/'+item.video+'/playback','GET',user.tokens);
+        assert.equal(playback.status,canRead?200:403);
+        assert.equal(callsToMux-muxBefore,canRead?1:0,'Mux request only after authorization');
+      }
+      const profile=await (await call('profile','GET',user.tokens)).json();
+      assert.deepEqual(profile.progress.map((x:{lesson_id:string})=>x.lesson_id).sort(),catalog.filter(x=>allowed.includes(x.track)).map(x=>x.lesson).sort());
+      assert.deepEqual(profile.favorites.map((x:{content_id:string})=>x.content_id).sort(),catalog.filter(x=>allowed.includes(x.track)).map(x=>x.recipe).sort());
+      assert.deepEqual(profile.registrations.map((x:{event_id:string})=>x.event_id).sort(),catalog.filter(x=>allowed.includes(x.track)).map(x=>x.event).sort());
+      for(const path of ['studio/content','studio/accounts','studio/media','studio/support','studio/audit']){
+        assert.equal((await call(path,'GET',user.tokens)).status,403,path);
+      }
+    });
+    await t.test('changing tracks withdraws sessions and previous private links',async()=>{
+      const first=catalog[0],second=catalog[1],user=await f.account();
+      const signed=(await (await call('media/'+first.file+'/download','GET',user.tokens)).json()).url.replace(/^\/api\//,'');
+      assert.equal((await call('favorites','POST',user.tokens,{contentId:first.recipe,enabled:true})).status,200);
+      assert.equal((await call('progress','POST',user.tokens,{lessonId:first.lesson,position:12,completed:true})).status,200);
+      assert.equal((await call('studio/accounts/'+user.id,'POST',tech.tokens,{action:'tracks',tracks:['braun']})).status,200);
+      assert.equal((await call(signed,'GET',user.tokens)).status,401);
+      const current=await f.run(db=>createLogin(db,user.telegramId,user.tokens.device));
+      const tokens={session:current.sessionToken,device:current.deviceToken};
+      assert.equal((await call(signed,'GET',tokens)).status,403);
+      assert.equal((await call('media/'+first.video+'/playback','GET',tokens)).status,403);
+      const profile=await (await call('profile','GET',tokens)).json();
+      assert.deepEqual(profile.favorites,[]);
+      assert.deepEqual(profile.progress,[]);
+      assert.equal((await call('progress','POST',tokens,{lessonId:second.lesson,position:12,completed:true})).status,200);
+    });
+  }finally{
+    globalThis.fetch=originalFetch;
+    restore();
+    if(oldBot===undefined)delete process.env.TELEGRAM_BOT_TOKEN;else process.env.TELEGRAM_BOT_TOKEN=oldBot;
+    await f.close();
+  }
 });

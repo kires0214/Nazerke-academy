@@ -145,7 +145,7 @@ test('a verified bot request stays outside users until Studio invites it, then o
     assert.equal(approved.role, 'student');
     assert.equal(academyName(approved),'Синтетический');
     assert.equal(academyName({display_name:'Legacy Surname'}),'Legacy');
-    assert.deepEqual(approved.scopes.sort(), ['academy','kenwood']);
+    assert.deepEqual(approved.scopes, ['academy']);
     assert.equal((await call('auth/telegram', { code })).status, 401);
 
     await sendUpdate(9, { text: '/login' });
